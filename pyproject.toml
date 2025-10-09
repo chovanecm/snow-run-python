@@ -1,0 +1,17 @@
+[project]
+name = "snow-cli"
+version = "0.1.0"
+description = "Platform-independent ServiceNow CLI"
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "click>=8.1.0",
+    "keyring>=24.0.0",
+]
+
+[project.scripts]
+snow = "snow_cli.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

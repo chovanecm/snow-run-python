@@ -3,34 +3,28 @@ import sys
 import click
 from .config import Config
 from .commands import login, elevate, run_script
+from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
 
 @click.group()
 @click.option(
-    "--instance",
+    "-i", "--instance",
     envvar="snow_instance",
-    help="ServiceNow instance (e.g., dev1234.service-now.com)",
+    help="ServiceNow instance (overrides default)",
 )
-@click.option("--user", envvar="snow_user", help="ServiceNow username")
-@click.option("--password", envvar="snow_pwd", help="ServiceNow password")
 @click.pass_context
-def main(ctx, instance, user, password):
+def main(ctx, instance):
     """ServiceNow CLI - Platform-independent command-line interface
 
-    Set credentials via environment variables or command-line options:
-      export snow_instance=dev1234.service-now.com
-      export snow_user=admin
-      export snow_pwd=your-password
+    Manage multiple ServiceNow instances:
+      snow add                    # Add a new instance
+      snow list                   # List all instances
+      snow use <instance>         # Set default instance
+      snow login                  # Login to default instance
+      snow --instance dev2 login  # Login to specific instance
     """
-    # Initialize config and store in context
-    config = Config()
-    if instance:
-        config.instance = instance
-    if user:
-        config.user = user
-    if password:
-        config.password = password
-
+    # Initialize config with specified instance
+    config = Config(instance=instance)
     ctx.obj = config
 
 
@@ -62,6 +56,56 @@ def run(config, script_file):
       snow run < script.js
     """
     sys.exit(run_script(config, script_file))
+
+
+@main.command()
+@click.argument("instance", required=False)
+@click.option("--default", is_flag=True, help="Set as default instance")
+def add(instance, default):
+    """Add a new ServiceNow instance
+
+    INSTANCE: ServiceNow instance (e.g. dev1234.service-now.com)
+
+    Examples:
+      snow add dev1234.service-now.com
+      snow add --default dev1234.service-now.com
+      snow add  # Interactive prompt
+    """
+    sys.exit(add_instance(instance, default))
+
+
+@main.command("list")
+def list_cmd():
+    """List all configured instances"""
+    sys.exit(list_instances())
+
+
+@main.command()
+@click.argument("instance")
+def use(instance):
+    """Set default instance
+
+    Examples:
+      snow use dev1234.service-now.com
+    """
+    sys.exit(use_instance(instance))
+
+
+@main.command()
+@click.argument("instance")
+def remove(instance):
+    """Remove an instance
+
+    Examples:
+      snow remove dev1234.service-now.com
+    """
+    sys.exit(remove_instance(instance))
+
+
+@main.command()
+def info():
+    """Show current configuration and instances"""
+    sys.exit(show_info())
 
 
 if __name__ == "__main__":
