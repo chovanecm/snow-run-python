@@ -1,83 +1,181 @@
 # ServiceNow Python CLI
 
-Platform-independent ServiceNow command-line interface written in Python.
+Run ServiceNow Background Scripts from your terminal — fast, reliable, and cross‑platform. The CLI also handles login, elevation, multi‑instance management, and secure credential storage with persistent sessions.
+
+## At a Glance
+
+- Run Background Scripts from file or stdin, with parsed output
+- Login and persist sessions (cookies saved per instance)
+- Elevate to `security_admin` when needed
+- Manage multiple instances: add, list, use (set default), remove, info
+- Secure credentials via OS keyring (fallback to config file)
+- Works on macOS, Linux, and Windows — no GNU/Bash dependencies
+
+## Quickstart
+
+```bash
+# Install locally
+pip install -e .
+
+# Add your instance and set it as default (interactive for credentials)
+snow add --default dev1234.service-now.com
+
+# Login and create a session
+snow login
+
+# Run a background script (core feature)
+echo "gs.print('Hello');" | snow run
+# or from file
+snow run example.js
+
+# Elevate if your task requires security_admin
+snow elevate
+```
+
+## Warning
+
+It would, in the most measured opinion of those entrusted with the uninterrupted prosecution of business-as-usual, be singularly ill-advised to employ this instrument upon any environment denominated as “production”, the consequences of which—while perfectly predictable—would be lamentably time‑consuming to elucidate and even more so to remediate. (Plainly: do not run this on production.)
+
+
 
 ## Next Generation
 
 This project is the next-generation rewrite of `snow-run`:
 
-- Repository: https://github.com/chovanecm/snow-run
+- Repository (this project): https://github.com/chovanecm/snow-run-python
+- Original Bash version: https://github.com/chovanecm/snow-run
 - The original was Bash-based and ran into cross-platform compatibility issues across systems (e.g., GNU vs. BSD tools, Windows shells).
 - This Python implementation focuses on consistent behavior across macOS, Linux, and Windows, with easier maintenance and clearer debugging.
 
 ## Features
 
-- **Cross-platform**: Works on macOS, Linux, and Windows
-- **Better debugging**: Clear error messages and logging
-- **No shell dependencies**: No need for GNU tools or bash-specific features
-- **Easy to maintain**: Python code is easier to debug than complex shell scripts
+- **Background Scripts (core)**: Run from file or stdin, parsed output, raw HTML saved for troubleshooting
+- **Login + elevation**: Authenticate and elevate to `security_admin` when required
+- **Persistent sessions**: Cookies stored per instance for reuse
+- **Multi-instance management**: add/list/use/remove, with a default instance
+- **Secure credentials**: OS keyring when available, config fallback
+- **Cross-platform**: macOS, Linux, Windows; no GNU/Bash dependencies
+- **Better debugging**: Clear errors; verbose mode planned
 
 ## Installation
 
-```bash
-cd python-cli
-pip install -e .
-```
+Choose one of the following:
+
+- Install via pipx (recommended for CLIs)
+
+  ```bash
+  pipx install git+https://github.com/chovanecm/snow-run-python@main
+  # upgrade later
+  pipx upgrade --spec git+https://github.com/chovanecm/snow-run-python@main snow
+  ```
+
+- Install via pip (user install)
+
+  ```bash
+  python3 -m pip install --user git+https://github.com/chovanecm/snow-run-python@main
+  ```
+
+- Pin to a tag or commit
+
+  ```bash
+  pipx install "git+https://github.com/chovanecm/snow-run-python@<tag_or_commit>"
+  ```
+
+- Try without installing
+
+  ```bash
+  pipx run --spec git+https://github.com/chovanecm/snow-run-python@main snow --help
+  ```
+
+- Development install from a local clone
+
+  ```bash
+  git clone https://github.com/chovanecm/snow-run-python.git
+  cd snow-run-python
+  pip install -e .
+  ```
 
 ## Configuration
 
-Set environment variables:
+Use `snow add` to store credentials securely (OS keyring when available) and set a default instance. You can always override with `--instance` for one-off commands. Configuration is stored in `~/.snow-run/config.json` with file permissions set to 600 (owner read/write only). Passwords are stored in the OS keyring when available; otherwise they fall back to the config file.
+
+## Commands
+
+- `snow add [--default] [INSTANCE]` — Add an instance (interactive credentials)
+- `snow list` — List configured instances
+- `snow use INSTANCE` — Set the default instance
+- `snow remove INSTANCE` — Remove an instance
+- `snow info` — Show current configuration and paths
+- `snow login` — Login and persist session cookies
+- `snow elevate` — Elevate to `security_admin`
+- `snow run [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
+
+## Managing Multiple Instances
+
+```bash
+# Interactive prompt
+snow add
+
+# Specify instance directly
+snow add dev1234.service-now.com
+
+# Set as default
+snow add --default dev5678.service-now.com
+
+# List configured instances
+snow list
+
+# Switch default instance
+snow use dev5678.service-now.com
+
+# Remove an instance
+snow remove dev1234.service-now.com
+
+# Show info
+snow info
+```
+
+## Working with Instances
+
+```bash
+# Login to default instance
+snow login
+
+# Login to specific instance (one-off)
+snow --instance dev5678.service-now.com login
+# or
+snow -i dev5678.service-now.com login
+
+# Run scripts
+snow run script.js
+echo "gs.print('Hello');" | snow run
+
+# Run on a specific instance
+snow -i dev5678.service-now.com run script.js
+
+# Elevate privileges
+snow elevate
+snow -i dev5678.service-now.com elevate
+```
+
+## Troubleshooting & Debugging
+
+- Last raw output (HTML) after running scripts: `~/.snow-run/tmp/{instance}/last_run_output.txt`
+- Verbose HTTP logging (`--debug`) is planned.
+- On errors, the CLI prints clear messages and relevant HTTP status codes.
+
+## Advanced
+
+Environment variables (legacy override; prefer `snow add`):
 
 ```bash
 export snow_instance=dev1234.service-now.com
 export snow_user=admin
 export snow_pwd=your-password
-```
 
-Or use command-line options:
-
-```bash
-snow --instance dev1234.service-now.com --user admin --password your-password login
-```
-
-## Commands
-
-### Login
-
-```bash
+# Example using env vars
 snow login
 ```
-
-Creates a session and stores cookies in `~/.snow-run/tmp/{instance}/cookies.txt`
-
-### Elevate Privileges
-
-```bash
-snow elevate
-```
-
-Elevates to security_admin role (required for running background scripts on some instances).
-
-### Run Background Script
-
-```bash
-# Run a script from file
-snow run example.js
-
-# Run from stdin
-echo "gs.print('Hello');" | snow run
-
-# Or
-snow run < script.js
-```
-
-## Debugging
-
-When things go wrong, check:
-
-1. **Last raw output**: `~/.snow-run/tmp/{instance}/last_run_output.txt`
-2. **Verbose mode** (coming soon): Add `--debug` flag for detailed HTTP logging
-3. **Error messages**: Python provides clear stack traces
 
 ## Advantages over Bash version
 

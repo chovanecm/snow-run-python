@@ -28,14 +28,14 @@ def main(ctx, instance):
     ctx.obj = config
 
 
-@main.command()
+@main.command(name="login")
 @click.pass_obj
 def login_cmd(config):
     """Login to ServiceNow instance and save session"""
     sys.exit(login(config))
 
 
-@main.command()
+@main.command(name="elevate")
 @click.pass_obj
 def elevate_cmd(config):
     """Elevate user privileges (security_admin role)"""
