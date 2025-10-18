@@ -2,6 +2,14 @@
 
 Platform-independent ServiceNow command-line interface written in Python.
 
+## Next Generation
+
+This project is the next-generation rewrite of `snow-run`:
+
+- Repository: https://github.com/chovanecm/snow-run
+- The original was Bash-based and ran into cross-platform compatibility issues across systems (e.g., GNU vs. BSD tools, Windows shells).
+- This Python implementation focuses on consistent behavior across macOS, Linux, and Windows, with easier maintenance and clearer debugging.
+
 ## Features
 
 - **Cross-platform**: Works on macOS, Linux, and Windows
