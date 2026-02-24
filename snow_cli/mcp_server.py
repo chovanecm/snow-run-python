@@ -6,7 +6,7 @@ from typing import Optional, List
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
-from .commands import login, elevate, run_script, search_records_json
+from .commands import login, elevate, run_script, search_records_json, table_fields_json
 from .instance_manager import list_instances
 
 mcp = FastMCP(
@@ -149,6 +149,39 @@ def snow_record_search(
             field_names = list(records[0].keys()) if records else []
             return _json.dumps({"saved_to": output_file, "count": len(records), "fields": field_names})
         return _json.dumps(records, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def snow_table_fields(
+    table: str,
+    output_file: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> str:
+    """List all fields (including inherited) for a ServiceNow table.
+
+    Returns a JSON array of {field, label, type, references} objects.
+    For reference-type fields, 'references' contains the referenced table name.
+
+    For tables with many fields (100+), use output_file to save to disk and
+    receive only metadata back — avoiding large inline responses.
+
+    Args:
+        table: ServiceNow table name (e.g. incident, cmdb_ci, task).
+        output_file: If set, save JSON results to this path and return only
+                     {"saved_to": "...", "count": N} instead of all fields.
+        instance: ServiceNow instance hostname. Omit to use default instance.
+    """
+    import json as _json
+    config = Config(instance=instance)
+    try:
+        fields_data = table_fields_json(config, table)
+        if output_file:
+            with open(output_file, "w", encoding="utf-8") as fh:
+                fh.write(_json.dumps(fields_data, ensure_ascii=False, indent=2))
+            return _json.dumps({"saved_to": output_file, "count": len(fields_data)})
+        return _json.dumps(fields_data, ensure_ascii=False, indent=2)
     except Exception as e:
         return _json.dumps({"error": str(e)})
 

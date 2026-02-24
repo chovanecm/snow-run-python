@@ -111,6 +111,7 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow run [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
 - `snow record search [options] TABLE_NAME` — Query table records
 - `snow r search [options] TABLE_NAME` — Alias for `snow record search`
+- `snow table fields [options] TABLE_NAME` — List all fields (including inherited) with labels and types
 - `snow mcp` — Start the MCP server (stdio) for AI assistant integration
 
 ## MCP Server Mode
@@ -125,11 +126,51 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 | `snow_login` | Log in and persist the session cookie |
 | `snow_elevate` | Elevate to the `security_admin` role |
 | `snow_list_instances` | List configured ServiceNow instances |
+| `snow_table_fields` | List all fields (including inherited) for a table. Returns `{field, label, type, references}` per field. Use `output_file` for large tables. |
 | `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode. Use `output_file` to save large results to disk and return only metadata. |
 
 All tools accept an optional `instance` argument; omit it to use the default configured instance.
 
-> **Context window tip:** `snow_record_search` returns all records inline by default. Always specify `limit` to control response size. For large exports, pass `output_file` to save results to disk — the tool will return only `{"saved_to": "...", "count": N, "fields": [...]}` instead of the full payload.
+> **Context window tip:** `snow_record_search` and `snow_table_fields` return data inline by default. Always specify `limit` for record searches. For large tables or result sets, pass `output_file` to save to disk — the tool returns only `{"saved_to": "...", "count": N}` instead of the full payload.
+
+## Table Schema
+
+Use `snow table fields TABLE_NAME` to inspect all columns on a table, including those inherited from parent tables.
+
+```bash
+# List all fields (pretty table by default)
+snow table fields incident
+
+# JSON output (includes references as a separate key)
+snow table fields incident -F json
+
+# Export to CSV for documentation
+snow table fields cmdb_ci -F csv -O cmdb_ci_fields.csv
+
+# Export to Excel
+snow table fields task -F excel -O task_fields.xlsx
+```
+
+### Example output
+
+```
+field              label                    type             references
+-----------------  -----------------------  ---------------  ----------------
+assigned_to        Assignee                 reference        sys_user
+caused_by          Caused by Change         reference        change_request
+location           Location                 reference        cmn_location
+made_sla           Made SLA                 boolean
+parent             Parent                   reference        task
+sys_updated_on     Updated                  glide_date_time
+watch_list         Watch list               glide_list
+```
+
+Fields are sorted alphabetically. The `references` column is populated for `reference` and `glide_list` fields that point to another table.
+
+### Options
+
+- `-F, --format [table|tsv|csv|json|xml|excel]` (default: `table`)
+- `-O, --output FILE` (write to file; required for excel)
 
 ## Record Queries
 

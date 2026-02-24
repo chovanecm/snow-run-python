@@ -255,6 +255,152 @@ def _fetch_records(
     return records
 
 
+def _get_table_hierarchy(base: str, auth: tuple, table_name: str) -> list:
+    """Return list of table names from table_name up to the root (most-specific first)."""
+    import requests as _requests
+    hierarchy = []
+    current = table_name
+    visited = set()
+    while current and current not in visited:
+        visited.add(current)
+        hierarchy.append(current)
+        resp = _requests.get(
+            f"{base}/api/now/table/sys_db_object",
+            params={
+                "sysparm_query": f"name={current}",
+                "sysparm_fields": "super_class.name",
+                "sysparm_limit": "1",
+                "sysparm_display_value": "false",
+            },
+            auth=auth,
+            headers={"Accept": "application/json"},
+        )
+        if resp.status_code != 200:
+            break
+        rows = resp.json().get("result") or []
+        if not rows:
+            break
+        parent = rows[0].get("super_class.name") or ""
+        if isinstance(parent, dict):
+            parent = parent.get("value") or parent.get("display_value") or ""
+        current = parent.strip() if parent else ""
+    return hierarchy
+
+
+def _fetch_table_fields(config: Config, table_name: str) -> list:
+    """Return all fields (including inherited) for a table. Raises on error.
+
+    Each entry: {field, label, type, references}
+    """
+    import requests as _requests
+    auth = (config.user, config.password)
+    base = f"https://{config.instance}"
+
+    hierarchy = _get_table_hierarchy(base, auth, table_name)
+    if not hierarchy:
+        raise RuntimeError(f"Table '{table_name}' not found or not accessible.")
+
+    table_in_query = ",".join(hierarchy)
+    resp = _requests.get(
+        f"{base}/api/now/table/sys_dictionary",
+        params={
+            "sysparm_query": f"nameIN{table_in_query}^elementISNOTEMPTY",
+            "sysparm_fields": "element,column_label,internal_type,reference,name",
+            "sysparm_limit": "10000",
+            "sysparm_display_value": "all",
+            "sysparm_no_count": "true",
+        },
+        auth=auth,
+        headers={"Accept": "application/json"},
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Failed to fetch fields (HTTP {resp.status_code}): {resp.text[:200]}"
+        )
+
+    raw = resp.json().get("result") or []
+
+    def _val(cell):
+        if isinstance(cell, dict):
+            return cell.get("value") or ""
+        return str(cell) if cell else ""
+
+    # Build priority map: lower index in hierarchy = higher priority (child wins)
+    table_priority = {t: i for i, t in enumerate(hierarchy)}
+
+    # Collect all field entries
+    entries = []
+    for row in raw:
+        field_name = _val(row.get("element"))
+        if not field_name:
+            continue
+        entries.append({
+            "_table": _val(row.get("name")),
+            "field": field_name,
+            "label": _val(row.get("column_label")),
+            "type": _val(row.get("internal_type")),
+            "references": _val(row.get("reference")),
+        })
+
+    # Deduplicate: child table definition wins over parent
+    seen = {}
+    for entry in entries:
+        f = entry["field"]
+        prio = table_priority.get(entry["_table"], len(hierarchy))
+        if f not in seen or prio < seen[f][0]:
+            seen[f] = (prio, entry)
+
+    result = sorted(
+        ({k: v for k, v in e.items() if k != "_table"} for _, e in seen.values()),
+        key=lambda x: x["field"],
+    )
+    return result
+
+
+def table_fields(
+    config: Config,
+    table_name: str,
+    fmt: str = "table",
+    output_file: Optional[str] = None,
+) -> int:
+    """Output all fields for a ServiceNow table (CLI output)."""
+    try:
+        config.ensure_credentials_set()
+        if fmt not in FORMAT_CHOICES:
+            print(f"Invalid format. Use one of: {', '.join(FORMAT_CHOICES)}", file=sys.stderr)
+            return 1
+        if fmt == "excel" and not output_file:
+            print("--output FILE is required when --format is excel.", file=sys.stderr)
+            return 1
+
+        fields_data = _fetch_table_fields(config, table_name)
+        if not fields_data:
+            print(f"No fields found for table '{table_name}'.")
+            return 0
+
+        columns = ["field", "label", "type", "references"]
+        if fmt == "json":
+            _write_or_print(json.dumps(fields_data, ensure_ascii=False, indent=2), output_file)
+        elif fmt == "xml":
+            _write_or_print(_build_xml(fields_data, "sys_dictionary", "values"), output_file)
+        else:
+            _output_records(fields_data, columns, no_header=False, display_values="values",
+                            fmt=fmt, output_file=output_file, table="sys_dictionary")
+        return 0
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Table fields error: {e}", file=sys.stderr)
+        return 1
+
+
+def table_fields_json(config: Config, table_name: str) -> list:
+    """Return all fields for a table as a list of dicts. Raises on error."""
+    config.ensure_credentials_set()
+    return _fetch_table_fields(config, table_name)
+
+
 def search_records(
     config: Config,
     table: str,

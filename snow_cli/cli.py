@@ -2,7 +2,7 @@
 import sys
 import click
 from .config import Config
-from .commands import login, elevate, run_script, search_records
+from .commands import login, elevate, run_script, search_records, table_fields
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
 @click.group()
@@ -196,6 +196,29 @@ def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, s
         fmt.lower(),
         output_file,
     )
+
+
+@main.group(name="table")
+def table_group():
+    """Table schema operations."""
+
+
+@table_group.command(name="fields")
+@click.argument("table_name")
+@_add_format_options
+@click.pass_obj
+def table_fields_cmd(config, table_name, fmt, output_file):
+    """List all fields (including inherited) for a ServiceNow table.
+
+    Outputs field name, label, type, and referenced table (for reference fields).
+
+    Examples:
+      snow table fields incident
+      snow table fields incident -F json
+      snow table fields cmdb_ci -F csv -O cmdb_ci_fields.csv
+      snow table fields task -F excel -O task_fields.xlsx
+    """
+    sys.exit(table_fields(config, table_name, fmt=fmt.lower(), output_file=output_file))
 
 
 @main.command()
