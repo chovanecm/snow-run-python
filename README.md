@@ -109,6 +109,8 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow login` — Login and persist session cookies
 - `snow elevate` — Elevate to `security_admin`
 - `snow run [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
+- `snow record search [options] TABLE_NAME` — Query table records
+- `snow r search [options] TABLE_NAME` — Alias for `snow record search`
 - `snow mcp` — Start the MCP server (stdio) for AI assistant integration
 
 ## MCP Server Mode
@@ -123,8 +125,40 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 | `snow_login` | Log in and persist the session cookie |
 | `snow_elevate` | Elevate to the `security_admin` role |
 | `snow_list_instances` | List configured ServiceNow instances |
+| `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode |
 
 All tools accept an optional `instance` argument; omit it to use the default configured instance.
+
+## Record Queries
+
+Use `snow record search` (or alias `snow r search`) to query ServiceNow tables.
+
+```bash
+# Basic query
+snow record search incident
+
+# Filter + projection + limit
+snow record search -q "active=true^priority=1" -f number,short_description,state -l 10 incident
+
+# Sorting (multi)
+snow record search -o number -od sys_created_on incident
+
+# sys_id only
+snow record search --sys-id incident
+
+# Display mode: values|display|both (default both)
+snow record search --display-values both -f caller_id,assignment_group incident
+```
+
+Options:
+- `-q, --query ENCODED_QUERY`
+- `-o, --order-by FIELD` (repeatable)
+- `-od, --order-by-desc FIELD` (repeatable)
+- `-f, --fields FIELDS` (comma-separated)
+- `-l, --limit N`
+- `--no-header`
+- `--sys-id` (shortcut for `-f sys_id --no-header`)
+- `--display-values [values|display|both]` (default: `both`)
 
 **Claude Desktop setup** — add to `claude_desktop_config.json`:
 

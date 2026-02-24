@@ -1,19 +1,19 @@
 """MCP server mode for ServiceNow CLI"""
 import io
 import contextlib
-from typing import Optional
+from typing import Optional, List
 
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
-from .commands import login, elevate, run_script
+from .commands import login, elevate, run_script, search_records_json
 from .instance_manager import list_instances
 
 mcp = FastMCP(
     "ServiceNow CLI",
     instructions=(
         "Tools for executing JavaScript background scripts on a ServiceNow instance, "
-        "logging in, elevating privileges, and listing configured instances. "
+        "logging in, elevating privileges, listing configured instances, and querying tables. "
         "Instances are pre-configured via 'snow add'. "
         "Omit 'instance' to use the default configured instance."
     ),
@@ -95,6 +95,50 @@ def snow_elevate(instance: Optional[str] = None) -> str:
 def snow_list_instances() -> str:
     """List all configured ServiceNow instances."""
     return _run_without_config_with_capture(list_instances)
+
+
+@mcp.tool()
+def snow_record_search(
+    table: str,
+    query: Optional[str] = None,
+    order_by: Optional[List[str]] = None,
+    order_by_desc: Optional[List[str]] = None,
+    fields: Optional[str] = None,
+    limit: Optional[int] = None,
+    display_values: str = "both",
+    sys_id: bool = False,
+    instance: Optional[str] = None,
+) -> str:
+    """Search records in a ServiceNow table. Returns JSON array of records.
+
+    Args:
+        table: ServiceNow table name.
+        query: Encoded query string (sysparm_query).
+        order_by: Field names to sort ascending.
+        order_by_desc: Field names to sort descending.
+        fields: Comma-separated fields to return.
+        limit: Maximum number of records to return.
+        display_values: One of values, display, both.
+        sys_id: Shortcut for fields=sys_id.
+        instance: ServiceNow instance hostname. Omit to use default instance.
+    """
+    import json as _json
+    config = Config(instance=instance)
+    effective_fields = "sys_id" if sys_id else fields
+    try:
+        records = search_records_json(
+            config,
+            table=table,
+            query=query,
+            order_by=order_by,
+            order_by_desc=order_by_desc,
+            fields=effective_fields,
+            limit=limit,
+            display_values=display_values,
+        )
+        return _json.dumps(records, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _json.dumps({"error": str(e)})
 
 
 def serve():

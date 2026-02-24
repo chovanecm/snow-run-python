@@ -2,7 +2,7 @@
 import sys
 import click
 from .config import Config
-from .commands import login, elevate, run_script
+from .commands import login, elevate, run_script, search_records
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
 @click.group()
@@ -79,6 +79,99 @@ def list_cmd():
     sys.exit(list_instances())
 
 
+@main.group()
+def record():
+    """Record operations."""
+
+
+@main.group(name="r")
+def r_alias():
+    """Alias for record."""
+
+
+def _record_search_impl(config, table, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values):
+    sys.exit(
+        search_records(
+            config=config,
+            table=table,
+            query=query,
+            order_by=order_by,
+            order_by_desc=order_by_desc,
+            fields=fields,
+            limit=limit,
+            no_header=no_header,
+            sys_id=sys_id,
+            display_values=display_values,
+        )
+    )
+
+
+@record.command(name="search")
+@click.option("-q", "--query", "query", help="Encoded query (sysparm_query)")
+@click.option("-o", "--order-by", "order_by", multiple=True, help="Order by field (can be used multiple times)")
+@click.option("-od", "--order-by-desc", "order_by_desc", multiple=True, help="Order by field descending (can be used multiple times)")
+@click.option("-f", "--fields", help="Comma-separated list of fields to return")
+@click.option("-l", "--limit", type=int, help="Maximum number of records to return")
+@click.option("--no-header", is_flag=True, help="Omit column headers")
+@click.option("--sys-id", "sys_id", is_flag=True, help="Shortcut for -f sys_id --no-header")
+@click.option(
+    "--display-values",
+    type=click.Choice(["values", "display", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help="Return field values, display values, or both",
+)
+@click.argument("table_name")
+@click.pass_obj
+def record_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, table_name):
+    """Perform a query on a table."""
+    _record_search_impl(
+        config,
+        table_name,
+        query,
+        list(order_by),
+        list(order_by_desc),
+        fields,
+        limit,
+        no_header,
+        sys_id,
+        display_values.lower(),
+    )
+
+
+@r_alias.command(name="search")
+@click.option("-q", "--query", "query", help="Encoded query (sysparm_query)")
+@click.option("-o", "--order-by", "order_by", multiple=True, help="Order by field (can be used multiple times)")
+@click.option("-od", "--order-by-desc", "order_by_desc", multiple=True, help="Order by field descending (can be used multiple times)")
+@click.option("-f", "--fields", help="Comma-separated list of fields to return")
+@click.option("-l", "--limit", type=int, help="Maximum number of records to return")
+@click.option("--no-header", is_flag=True, help="Omit column headers")
+@click.option("--sys-id", "sys_id", is_flag=True, help="Shortcut for -f sys_id --no-header")
+@click.option(
+    "--display-values",
+    type=click.Choice(["values", "display", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help="Return field values, display values, or both",
+)
+@click.argument("table_name")
+@click.pass_obj
+def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, table_name):
+    """Perform a query on a table."""
+    _record_search_impl(
+        config,
+        table_name,
+        query,
+        list(order_by),
+        list(order_by_desc),
+        fields,
+        limit,
+        no_header,
+        sys_id,
+        display_values.lower(),
+    )
+
+
 @main.command()
 @click.argument("instance")
 def use(instance):
@@ -111,7 +204,7 @@ def info():
 def mcp():
     """Start the MCP server (stdio transport) for AI assistant integration
 
-    Exposes snow_run_script, snow_login, snow_elevate, and snow_list_instances as MCP tools.
+    Exposes snow_run_script, snow_login, snow_elevate, snow_list_instances, and snow_record_search as MCP tools.
 
     Example Claude Desktop config (~/.config/claude/claude_desktop_config.json):
 
