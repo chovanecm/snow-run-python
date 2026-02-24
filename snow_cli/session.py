@@ -41,6 +41,7 @@ class SnowSession:
             cookie_jar.set_cookie(cookie)
 
         cookie_jar.save(ignore_discard=True, ignore_expires=True)
+        self.cookie_file.chmod(0o600)
 
     def get(self, path: str, **kwargs) -> requests.Response:
         """Perform GET request and save cookies"""

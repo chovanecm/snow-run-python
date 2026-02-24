@@ -5,6 +5,7 @@ import re
 import sys
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 import html
 
@@ -542,8 +543,16 @@ def _format_field_value(value, display_values: str) -> str:
     return str(value)
 
 
+def _validate_output_file(path: str) -> str:
+    """Reject path traversal — raise ValueError if path contains '..' components."""
+    if ".." in Path(path).parts:
+        raise ValueError(f"Invalid output path (path traversal not allowed): {path}")
+    return path
+
+
 def _write_or_print(text: str, output_file: Optional[str]):
     if output_file:
+        _validate_output_file(output_file)
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(text)
         print(f"Written to {output_file}")
@@ -606,9 +615,10 @@ def _output_csv(records: list, fields: list, no_header: bool, display_values: st
 
 def _build_xml(records: list, table: str, display_values: str) -> str:
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    safe_table = re.sub(r"[^a-zA-Z0-9_]", "_", table)
     parts = [f'<?xml version="1.0" encoding="UTF-8"?>', f'<unload unload_date="{now}">']
     for record in records:
-        parts.append(f'<{table} action="INSERT_OR_UPDATE">')
+        parts.append(f'<{safe_table} action="INSERT_OR_UPDATE">')
         for field_name, value in record.items():
             safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", field_name)
             if isinstance(value, dict):
@@ -625,7 +635,7 @@ def _build_xml(records: list, table: str, display_values: str) -> str:
                         parts.append(f"  <{safe_name}>{html.escape(raw)}</{safe_name}>")
             else:
                 parts.append(f"  <{safe_name}>{html.escape(str(value or ''))}</{safe_name}>")
-        parts.append(f"</{table}>")
+        parts.append(f"</{safe_table}>")
     parts.append("</unload>")
     return "\n".join(parts)
 
@@ -640,5 +650,5 @@ def _output_excel(records: list, fields: list, no_header: bool, display_values: 
         row_offset = 1
     for record in records:
         ws.append([_format_field_value(record.get(f), display_values) for f in fields])
-    wb.save(output_file)
+    wb.save(_validate_output_file(output_file))
     print(f"Written to {output_file}")

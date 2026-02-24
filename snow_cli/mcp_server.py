@@ -6,7 +6,7 @@ from typing import Optional, List
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
-from .commands import login, elevate, run_script, search_records_json, table_fields_json, count_records_value
+from .commands import login, elevate, run_script, search_records_json, table_fields_json, count_records_value, _validate_output_file
 from .instance_manager import list_instances
 
 mcp = FastMCP(
@@ -144,6 +144,7 @@ def snow_record_search(
             display_values=display_values,
         )
         if output_file:
+            _validate_output_file(output_file)
             with open(output_file, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(records, ensure_ascii=False, indent=2))
             field_names = list(records[0].keys()) if records else []
@@ -178,6 +179,7 @@ def snow_table_fields(
     try:
         fields_data = table_fields_json(config, table)
         if output_file:
+            _validate_output_file(output_file)
             with open(output_file, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(fields_data, ensure_ascii=False, indent=2))
             return _json.dumps({"saved_to": output_file, "count": len(fields_data)})
