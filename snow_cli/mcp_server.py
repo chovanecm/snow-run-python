@@ -6,7 +6,7 @@ from typing import Optional, List
 from mcp.server.fastmcp import FastMCP
 
 from .config import Config
-from .commands import login, elevate, run_script, search_records_json, table_fields_json
+from .commands import login, elevate, run_script, search_records_json, table_fields_json, count_records_value
 from .instance_manager import list_instances
 
 mcp = FastMCP(
@@ -182,6 +182,30 @@ def snow_table_fields(
                 fh.write(_json.dumps(fields_data, ensure_ascii=False, indent=2))
             return _json.dumps({"saved_to": output_file, "count": len(fields_data)})
         return _json.dumps(fields_data, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def snow_record_count(
+    table: str,
+    query: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> str:
+    """Count records in a ServiceNow table using the Aggregate API.
+
+    Returns {"count": N} JSON. Very lightweight — no context window concern.
+
+    Args:
+        table: ServiceNow table name (e.g. incident, change_request).
+        query: Encoded query string to filter records (sysparm_query).
+        instance: ServiceNow instance hostname. Omit to use default instance.
+    """
+    import json as _json
+    config = Config(instance=instance)
+    try:
+        count = count_records_value(config, table, query=query)
+        return _json.dumps({"count": count})
     except Exception as e:
         return _json.dumps({"error": str(e)})
 

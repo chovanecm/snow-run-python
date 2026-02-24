@@ -2,7 +2,7 @@
 import sys
 import click
 from .config import Config
-from .commands import login, elevate, run_script, search_records, table_fields
+from .commands import login, elevate, run_script, search_records, table_fields, count_records
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
 @click.group()
@@ -196,6 +196,33 @@ def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, s
         fmt.lower(),
         output_file,
     )
+
+
+@record.command(name="count")
+@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
+@click.argument("table_name")
+@click.pass_obj
+def record_count(config, query, table_name):
+    """Count records in a table, optionally filtered by a query.
+
+    Prints just the integer count.
+
+    Examples:
+      snow record count incident
+      snow record count -q "active=true" incident
+      snow record count -q "sys_created_on>=2024-01-01" incident
+    """
+    sys.exit(count_records(config, table_name, query=query))
+
+
+@r_alias.command(name="count")
+@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
+@click.argument("table_name")
+@click.pass_obj
+def r_count(config, query, table_name):
+    """Count records in a table, optionally filtered by a query."""
+    sys.exit(count_records(config, table_name, query=query))
+
 
 
 @main.group(name="table")

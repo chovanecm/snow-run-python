@@ -401,6 +401,46 @@ def table_fields_json(config: Config, table_name: str) -> list:
     return _fetch_table_fields(config, table_name)
 
 
+def _fetch_record_count(config: Config, table: str, query: Optional[str] = None) -> int:
+    """Call the Aggregate API and return the record count. Raises on error."""
+    import requests as _requests
+    params = {"sysparm_count": "true"}
+    if query:
+        params["sysparm_query"] = query
+    response = _requests.get(
+        f"https://{config.instance}/api/now/stats/{table}",
+        params=params,
+        headers={"Accept": "application/json"},
+        auth=(config.user, config.password),
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Record count failed with status code: {response.status_code}\n{response.text}"
+        )
+    return int(response.json()["result"]["stats"]["count"])
+
+
+def count_records(config: Config, table: str, query: Optional[str] = None) -> int:
+    """Print the count of matching records (CLI output). Returns exit code."""
+    try:
+        config.ensure_credentials_set()
+        count = _fetch_record_count(config, table, query)
+        print(count)
+        return 0
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Record count error: {e}", file=sys.stderr)
+        return 1
+
+
+def count_records_value(config: Config, table: str, query: Optional[str] = None) -> int:
+    """Return the count as an integer. Raises on error."""
+    config.ensure_credentials_set()
+    return _fetch_record_count(config, table, query)
+
+
 def search_records(
     config: Config,
     table: str,

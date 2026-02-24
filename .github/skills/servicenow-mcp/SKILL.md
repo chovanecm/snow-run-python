@@ -35,6 +35,7 @@ Use this skill when the user asks to operate on ServiceNow via MCP tools.
 - "List my ServiceNow instances and tell me which one is default."
 - "Log in to dev1234.service-now.com and elevate."
 - "What fields does the incident table have? Show me reference fields."
+- "How many open incidents are there?"
 - "Search incident with query active=true, return number and state, limit 20."
 - "Export all open incidents to /tmp/open_incidents.json (use output_file)."
 - "Save the full schema of cmdb_ci to /tmp/cmdb_ci_schema.json."

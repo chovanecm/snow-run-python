@@ -110,7 +110,9 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow elevate` — Elevate to `security_admin`
 - `snow run [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
 - `snow record search [options] TABLE_NAME` — Query table records
+- `snow record count [-q QUERY] TABLE_NAME` — Count matching records
 - `snow r search [options] TABLE_NAME` — Alias for `snow record search`
+- `snow r count [-q QUERY] TABLE_NAME` — Alias for `snow record count`
 - `snow table fields [options] TABLE_NAME` — List all fields (including inherited) with labels and types
 - `snow mcp` — Start the MCP server (stdio) for AI assistant integration
 
@@ -126,6 +128,7 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 | `snow_login` | Log in and persist the session cookie |
 | `snow_elevate` | Elevate to the `security_admin` role |
 | `snow_list_instances` | List configured ServiceNow instances |
+| `snow_record_count` | Count records matching an optional query. Returns `{"count": N}`. Lightweight — no context concern. |
 | `snow_table_fields` | List all fields (including inherited) for a table. Returns `{field, label, type, references}` per field. Use `output_file` for large tables. |
 | `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode. Use `output_file` to save large results to disk and return only metadata. |
 
@@ -173,6 +176,21 @@ Fields are sorted alphabetically. The `references` column is populated for `refe
 - `-O, --output FILE` (write to file; required for excel)
 
 ## Record Queries
+
+### Counting records
+
+```bash
+# Count all records
+snow record count incident
+
+# Count with filter
+snow record count -q "active=true" incident
+snow r count -q "sys_created_on>=2024-01-01" incident
+```
+
+Prints just the integer count — no headers, no formatting.
+
+### Searching records
 
 Use `snow record search` (or alias `snow r search`) to query ServiceNow tables.
 
