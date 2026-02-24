@@ -5,7 +5,6 @@ from .config import Config
 from .commands import login, elevate, run_script
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
-
 @click.group()
 @click.option(
     "-i", "--instance",
@@ -106,6 +105,28 @@ def remove(instance):
 def info():
     """Show current configuration and instances"""
     sys.exit(show_info())
+
+
+@main.command()
+def mcp():
+    """Start the MCP server (stdio transport) for AI assistant integration
+
+    Exposes snow_run_script, snow_login, and snow_elevate as MCP tools.
+
+    Example Claude Desktop config (~/.config/claude/claude_desktop_config.json):
+
+    \b
+    {
+      "mcpServers": {
+        "servicenow": {
+          "command": "snow",
+          "args": ["mcp"]
+        }
+      }
+    }
+    """
+    from .mcp_server import serve
+    serve()
 
 
 if __name__ == "__main__":

@@ -86,18 +86,19 @@ def elevate(config: Config) -> int:
         return 1
 
 
-def run_script(config: Config, script_file: Optional[str] = None) -> int:
+def run_script(config: Config, script_file: Optional[str] = None, script_content: Optional[str] = None) -> int:
     """Run a background script on ServiceNow"""
     try:
         config.ensure_instance_set()
 
-        # Read script content
-        if script_file and script_file != "-":
-            with open(script_file, "r") as f:
-                script_content = f.read()
-        else:
-            # Read from stdin
-            script_content = sys.stdin.read()
+        # Use provided content, or read from file/stdin
+        if script_content is None:
+            if script_file and script_file != "-":
+                with open(script_file, "r") as f:
+                    script_content = f.read()
+            else:
+                # Read from stdin
+                script_content = sys.stdin.read()
 
         session = SnowSession(config.instance, config.cookie_file)
 

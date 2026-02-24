@@ -109,6 +109,38 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow login` — Login and persist session cookies
 - `snow elevate` — Elevate to `security_admin`
 - `snow run [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
+- `snow mcp` — Start the MCP server (stdio) for AI assistant integration
+
+## MCP Server Mode
+
+`snow mcp` starts an [MCP](https://modelcontextprotocol.io/) server over stdio, letting AI assistants (e.g. Claude Desktop) call ServiceNow operations as tools.
+
+**Exposed tools:**
+
+| Tool | Description |
+|---|---|
+| `snow_run_script` | Execute a JavaScript background script on a ServiceNow instance |
+| `snow_login` | Log in and persist the session cookie |
+| `snow_elevate` | Elevate to the `security_admin` role |
+
+All tools accept an optional `instance` argument; omit it to use the default configured instance.
+
+**Claude Desktop setup** — add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "snow",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The config file is typically at:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ## Managing Multiple Instances
 
