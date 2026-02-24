@@ -125,16 +125,18 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 | `snow_login` | Log in and persist the session cookie |
 | `snow_elevate` | Elevate to the `security_admin` role |
 | `snow_list_instances` | List configured ServiceNow instances |
-| `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode |
+| `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode. Use `output_file` to save large results to disk and return only metadata. |
 
 All tools accept an optional `instance` argument; omit it to use the default configured instance.
+
+> **Context window tip:** `snow_record_search` returns all records inline by default. Always specify `limit` to control response size. For large exports, pass `output_file` to save results to disk — the tool will return only `{"saved_to": "...", "count": N, "fields": [...]}` instead of the full payload.
 
 ## Record Queries
 
 Use `snow record search` (or alias `snow r search`) to query ServiceNow tables.
 
 ```bash
-# Basic query
+# Basic query — default output is a pretty table
 snow record search incident
 
 # Filter + projection + limit
@@ -150,12 +152,56 @@ snow record search --sys-id incident
 snow record search --display-values both -f caller_id,assignment_group incident
 ```
 
-Options:
+### Output formats
+
+Use `-F / --format` to choose the output format:
+
+| Format  | Description                                           |
+|---------|-------------------------------------------------------|
+| `table` | *(default)* Pretty-printed aligned table              |
+| `tsv`   | Tab-separated values                                  |
+| `csv`   | Comma-separated values                                |
+| `json`  | JSON array (full `value`/`display_value` objects)     |
+| `xml`   | ServiceNow XML unload format (`<unload>…</unload>`)   |
+| `excel` | Excel `.xlsx` — requires `-O/--output FILE`           |
+
+Use `-O / --output FILE` to write to a file instead of stdout (required for `excel`):
+
+```bash
+# CSV to stdout
+snow record search -l 20 -f number,state -F csv incident
+
+# JSON to file
+snow record search -l 100 -f number,short_description -F json -O incidents.json incident
+
+# Excel export
+snow record search -q "active=true" -F excel -O open_incidents.xlsx incident
+
+# ServiceNow XML unload
+snow record search -l 10 -F xml incident
+```
+
+The XML format follows the ServiceNow XML export convention:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<unload unload_date="2026-02-24 12:00:00">
+  <incident action="INSERT_OR_UPDATE">
+    <number>INC1234</number>
+    <state display_value="Open">1</state>
+  </incident>
+</unload>
+```
+Reference fields (where display value differs from raw value) carry a `display_value` attribute.
+
+### All options
+
 - `-q, --query ENCODED_QUERY`
 - `-o, --order-by FIELD` (repeatable)
 - `-od, --order-by-desc FIELD` (repeatable)
 - `-f, --fields FIELDS` (comma-separated)
 - `-l, --limit N`
+- `-F, --format [table|tsv|csv|json|xml|excel]` (default: `table`)
+- `-O, --output FILE` (write to file; required for excel)
 - `--no-header`
 - `--sys-id` (shortcut for `-f sys_id --no-header`)
 - `--display-values [values|display|both]` (default: `both`)

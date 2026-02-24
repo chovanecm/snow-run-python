@@ -89,7 +89,7 @@ def r_alias():
     """Alias for record."""
 
 
-def _record_search_impl(config, table, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values):
+def _record_search_impl(config, table, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file):
     sys.exit(
         search_records(
             config=config,
@@ -102,8 +102,28 @@ def _record_search_impl(config, table, query, order_by, order_by_desc, fields, l
             no_header=no_header,
             sys_id=sys_id,
             display_values=display_values,
+            fmt=fmt,
+            output_file=output_file,
         )
     )
+
+
+_FORMAT_OPTION = [
+    click.option(
+        "-F", "--format", "fmt",
+        type=click.Choice(["table", "tsv", "csv", "json", "xml", "excel"], case_sensitive=False),
+        default="table",
+        show_default=True,
+        help="Output format",
+    ),
+    click.option("-O", "--output", "output_file", default=None, help="Write output to FILE (required for excel)"),
+]
+
+
+def _add_format_options(func):
+    for option in reversed(_FORMAT_OPTION):
+        func = option(func)
+    return func
 
 
 @record.command(name="search")
@@ -121,9 +141,10 @@ def _record_search_impl(config, table, query, order_by, order_by_desc, fields, l
     show_default=True,
     help="Return field values, display values, or both",
 )
+@_add_format_options
 @click.argument("table_name")
 @click.pass_obj
-def record_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, table_name):
+def record_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file, table_name):
     """Perform a query on a table."""
     _record_search_impl(
         config,
@@ -136,6 +157,8 @@ def record_search(config, query, order_by, order_by_desc, fields, limit, no_head
         no_header,
         sys_id,
         display_values.lower(),
+        fmt.lower(),
+        output_file,
     )
 
 
@@ -154,9 +177,10 @@ def record_search(config, query, order_by, order_by_desc, fields, limit, no_head
     show_default=True,
     help="Return field values, display values, or both",
 )
+@_add_format_options
 @click.argument("table_name")
 @click.pass_obj
-def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, table_name):
+def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file, table_name):
     """Perform a query on a table."""
     _record_search_impl(
         config,
@@ -169,6 +193,8 @@ def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, s
         no_header,
         sys_id,
         display_values.lower(),
+        fmt.lower(),
+        output_file,
     )
 
 

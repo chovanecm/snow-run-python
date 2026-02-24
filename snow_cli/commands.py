@@ -1,7 +1,10 @@
 """ServiceNow command implementations"""
+import csv
+import io
 import re
 import sys
 import json
+from datetime import datetime
 from typing import Optional
 import html
 
@@ -14,6 +17,8 @@ DISPLAY_VALUE_MAP = {
     "display": "true",
     "both": "all",
 }
+
+FORMAT_CHOICES = ["table", "tsv", "csv", "json", "xml", "excel"]
 
 
 def login(config: Config) -> int:
@@ -261,6 +266,8 @@ def search_records(
     no_header: bool = False,
     sys_id: bool = False,
     display_values: str = "both",
+    fmt: str = "table",
+    output_file: Optional[str] = None,
 ) -> int:
     """Search records in a ServiceNow table using Table API (CLI output)."""
     try:
@@ -277,14 +284,27 @@ def search_records(
             )
             return 1
 
+        if fmt not in FORMAT_CHOICES:
+            print(f"Invalid format. Use one of: {', '.join(FORMAT_CHOICES)}", file=sys.stderr)
+            return 1
+
+        if fmt == "excel" and not output_file:
+            print("--output FILE is required when --format is excel.", file=sys.stderr)
+            return 1
+
         records = _fetch_records(config, table, query, order_by, order_by_desc, fields, limit, display_values)
 
         if not records:
-            print("No records found.")
+            if fmt not in ("json", "xml"):
+                print("No records found.")
+            elif fmt == "json":
+                _write_or_print("[]", output_file)
+            elif fmt == "xml":
+                _write_or_print(_build_xml([], table, display_values), output_file)
             return 0
 
         selected_fields = _resolve_selected_fields(fields, records[0])
-        _print_records(records, selected_fields, no_header, display_values)
+        _output_records(records, selected_fields, no_header, display_values, fmt, output_file, table)
         return 0
     except RuntimeError as e:
         print(str(e), file=sys.stderr)
@@ -336,9 +356,103 @@ def _format_field_value(value, display_values: str) -> str:
     return str(value)
 
 
-def _print_records(records: list, fields: list, no_header: bool, display_values: str):
+def _write_or_print(text: str, output_file: Optional[str]):
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"Written to {output_file}")
+    else:
+        print(text)
+
+
+def _output_records(
+    records: list,
+    fields: list,
+    no_header: bool,
+    display_values: str,
+    fmt: str,
+    output_file: Optional[str],
+    table: str,
+):
+    if fmt == "table":
+        _output_table(records, fields, no_header, display_values, output_file)
+    elif fmt == "tsv":
+        _output_tsv(records, fields, no_header, display_values, output_file)
+    elif fmt == "csv":
+        _output_csv(records, fields, no_header, display_values, output_file)
+    elif fmt == "json":
+        _write_or_print(json.dumps(records, ensure_ascii=False, indent=2), output_file)
+    elif fmt == "xml":
+        _write_or_print(_build_xml(records, table, display_values), output_file)
+    elif fmt == "excel":
+        _output_excel(records, fields, no_header, display_values, output_file)
+
+
+def _output_table(records: list, fields: list, no_header: bool, display_values: str, output_file: Optional[str]):
+    from tabulate import tabulate
+    rows = [
+        [_format_field_value(r.get(f), display_values) for f in fields]
+        for r in records
+    ]
+    headers = [] if no_header else fields
+    text = tabulate(rows, headers=headers, tablefmt="simple")
+    _write_or_print(text, output_file)
+
+
+def _output_tsv(records: list, fields: list, no_header: bool, display_values: str, output_file: Optional[str]):
+    lines = []
     if not no_header:
-        print("\t".join(fields))
+        lines.append("\t".join(fields))
     for record in records:
-        row = [_format_field_value(record.get(field), display_values) for field in fields]
-        print("\t".join(row))
+        lines.append("\t".join(_format_field_value(record.get(f), display_values) for f in fields))
+    _write_or_print("\n".join(lines), output_file)
+
+
+def _output_csv(records: list, fields: list, no_header: bool, display_values: str, output_file: Optional[str]):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    if not no_header:
+        writer.writerow(fields)
+    for record in records:
+        writer.writerow([_format_field_value(record.get(f), display_values) for f in fields])
+    _write_or_print(buf.getvalue().rstrip("\r\n"), output_file)
+
+
+def _build_xml(records: list, table: str, display_values: str) -> str:
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    parts = [f'<?xml version="1.0" encoding="UTF-8"?>', f'<unload unload_date="{now}">']
+    for record in records:
+        parts.append(f'<{table} action="INSERT_OR_UPDATE">')
+        for field_name, value in record.items():
+            safe_name = re.sub(r"[^a-zA-Z0-9_]", "_", field_name)
+            if isinstance(value, dict):
+                raw = str(value.get("value", "") or "")
+                display = str(value.get("display_value", "") or "")
+                if display_values == "display":
+                    parts.append(f"  <{safe_name}>{html.escape(display)}</{safe_name}>")
+                elif display_values == "values":
+                    parts.append(f"  <{safe_name}>{html.escape(raw)}</{safe_name}>")
+                else:  # both
+                    if display and display != raw:
+                        parts.append(f'  <{safe_name} display_value="{html.escape(display)}">{html.escape(raw)}</{safe_name}>')
+                    else:
+                        parts.append(f"  <{safe_name}>{html.escape(raw)}</{safe_name}>")
+            else:
+                parts.append(f"  <{safe_name}>{html.escape(str(value or ''))}</{safe_name}>")
+        parts.append(f"</{table}>")
+    parts.append("</unload>")
+    return "\n".join(parts)
+
+
+def _output_excel(records: list, fields: list, no_header: bool, display_values: str, output_file: str):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    row_offset = 0
+    if not no_header:
+        ws.append(fields)
+        row_offset = 1
+    for record in records:
+        ws.append([_format_field_value(record.get(f), display_values) for f in fields])
+    wb.save(output_file)
+    print(f"Written to {output_file}")

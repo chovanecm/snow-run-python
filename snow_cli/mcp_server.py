@@ -107,9 +107,14 @@ def snow_record_search(
     limit: Optional[int] = None,
     display_values: str = "both",
     sys_id: bool = False,
+    output_file: Optional[str] = None,
     instance: Optional[str] = None,
 ) -> str:
     """Search records in a ServiceNow table. Returns JSON array of records.
+
+    Always specify `limit` to avoid large inline responses that consume context.
+    Use `output_file` to save results to disk and receive only metadata back —
+    ideal for large exports or when the caller does not need the data inline.
 
     Args:
         table: ServiceNow table name.
@@ -117,9 +122,11 @@ def snow_record_search(
         order_by: Field names to sort ascending.
         order_by_desc: Field names to sort descending.
         fields: Comma-separated fields to return.
-        limit: Maximum number of records to return.
-        display_values: One of values, display, both.
+        limit: Maximum number of records to return. Set this to avoid large responses.
+        display_values: One of values, display, both (default both).
         sys_id: Shortcut for fields=sys_id.
+        output_file: If set, save JSON results to this file path and return only
+                     {"saved_to": "...", "count": N, "fields": [...]} instead of all records.
         instance: ServiceNow instance hostname. Omit to use default instance.
     """
     import json as _json
@@ -136,6 +143,11 @@ def snow_record_search(
             limit=limit,
             display_values=display_values,
         )
+        if output_file:
+            with open(output_file, "w", encoding="utf-8") as fh:
+                fh.write(_json.dumps(records, ensure_ascii=False, indent=2))
+            field_names = list(records[0].keys()) if records else []
+            return _json.dumps({"saved_to": output_file, "count": len(records), "fields": field_names})
         return _json.dumps(records, ensure_ascii=False, indent=2)
     except Exception as e:
         return _json.dumps({"error": str(e)})
