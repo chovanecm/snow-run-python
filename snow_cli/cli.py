@@ -111,7 +111,7 @@ def info():
 def mcp():
     """Start the MCP server (stdio transport) for AI assistant integration
 
-    Exposes snow_run_script, snow_login, and snow_elevate as MCP tools.
+    Exposes snow_run_script, snow_login, snow_elevate, and snow_list_instances as MCP tools.
 
     Example Claude Desktop config (~/.config/claude/claude_desktop_config.json):
 

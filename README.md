@@ -122,6 +122,7 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 | `snow_run_script` | Execute a JavaScript background script on a ServiceNow instance |
 | `snow_login` | Log in and persist the session cookie |
 | `snow_elevate` | Elevate to the `security_admin` role |
+| `snow_list_instances` | List configured ServiceNow instances |
 
 All tools accept an optional `instance` argument; omit it to use the default configured instance.
 

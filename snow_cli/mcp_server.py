@@ -7,12 +7,13 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import Config
 from .commands import login, elevate, run_script
+from .instance_manager import list_instances
 
 mcp = FastMCP(
     "ServiceNow CLI",
     instructions=(
         "Tools for executing JavaScript background scripts on a ServiceNow instance, "
-        "logging in, and elevating privileges. "
+        "logging in, elevating privileges, and listing configured instances. "
         "Instances are pre-configured via 'snow add'. "
         "Omit 'instance' to use the default configured instance."
     ),
@@ -25,6 +26,24 @@ def _run_with_capture(config: Config, fn, *args, **kwargs) -> str:
     stderr_buf = io.StringIO()
     with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
         exit_code = fn(config, *args, **kwargs)
+    output = stdout_buf.getvalue()
+    errors = stderr_buf.getvalue()
+    parts = []
+    if output:
+        parts.append(output.rstrip())
+    if errors:
+        parts.append(f"[stderr]\n{errors.rstrip()}")
+    if not parts:
+        parts.append("Done." if exit_code == 0 else f"Command failed (exit code {exit_code}).")
+    return "\n".join(parts)
+
+
+def _run_without_config_with_capture(fn, *args, **kwargs) -> str:
+    """Run a command function (without config arg) and capture stdout + stderr."""
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+        exit_code = fn(*args, **kwargs)
     output = stdout_buf.getvalue()
     errors = stderr_buf.getvalue()
     parts = []
@@ -70,6 +89,12 @@ def snow_elevate(instance: Optional[str] = None) -> str:
     """
     config = Config(instance=instance)
     return _run_with_capture(config, elevate)
+
+
+@mcp.tool()
+def snow_list_instances() -> str:
+    """List all configured ServiceNow instances."""
+    return _run_without_config_with_capture(list_instances)
 
 
 def serve():
