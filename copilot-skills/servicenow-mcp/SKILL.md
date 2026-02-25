@@ -87,7 +87,13 @@ Repeat for each interesting artifact. If there are many of the same type, batch 
 > **Note**: `sys_metadata` text search returns `sys_id` and `sys_class_name` but NOT `name`. Always follow up with a query on the specific child table to get the name and content.
 
 ### Step 5 — Write a tutorial
-After studying the relevant artifacts, write a Markdown file explaining the business logic, implementation patterns, data flows, and any notable conditions or edge cases.
+After studying the relevant artifacts, create a mkdocs-ready markdown structure explaining the rationale,
+the business logic,
+implementation patterns,
+data flows,
+usage,
+and any notable conditions or edge cases.
+
 
 ---
 
