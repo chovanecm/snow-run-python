@@ -564,13 +564,13 @@ def _validate_output_file(path: str) -> str:
     resolved = (cwd / p).resolve()
     if not str(resolved).startswith(str(cwd) + "/") and resolved != cwd:
         raise ValueError(f"Output path escapes working directory: {path}")
-    return path
+    return str(resolved)
 
 
 def _write_or_print(text: str, output_file: Optional[str]):
     if output_file:
-        _validate_output_file(output_file)
-        with open(output_file, "w", encoding="utf-8") as f:
+        safe_path = _validate_output_file(output_file)
+        with open(safe_path, "w", encoding="utf-8") as f:
             f.write(text)
         print(f"Written to {output_file}")
     else:

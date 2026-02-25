@@ -169,7 +169,7 @@ When running as an MCP server (`snow mcp`), the tool is controlled by an AI assi
 
 All tools carry [MCP tool annotations](https://modelcontextprotocol.io/specification/2025-03-26/server/tools) that tell compliant clients (Claude Desktop, GitHub Copilot, etc.) which operations are dangerous:
 
-| Tool | `destructiveHint` | `readOnlyHint` |
+| Tool | `destructive_hint` | `read_only_hint` |
 |---|---|---|
 | `snow_run_script` | ✅ | — |
 | `snow_login` | ✅ | — |

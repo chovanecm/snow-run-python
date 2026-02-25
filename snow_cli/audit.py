@@ -5,6 +5,7 @@ Each entry records the tool name, parameters (with sensitive values redacted),
 outcome, and timestamp.
 """
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -61,9 +62,10 @@ def log_tool_call(
 
     try:
         log_path = _get_log_path()
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=True) + "\n")
     except Exception:
         # Audit logging must never break the tool itself
         pass

@@ -190,8 +190,8 @@ def snow_record_search(
             display_values=display_values,
         )
         if output_file:
-            _validate_output_file(output_file)
-            with open(output_file, "w", encoding="utf-8") as fh:
+            safe_path = _validate_output_file(output_file)
+            with open(safe_path, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(records, ensure_ascii=False, indent=2))
             field_names = list(records[0].keys()) if records else []
             log_tool_call("snow_record_search", {**audit_params, "output_file": output_file, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
@@ -230,8 +230,8 @@ def snow_table_fields(
     try:
         fields_data = table_fields_json(config, table)
         if output_file:
-            _validate_output_file(output_file)
-            with open(output_file, "w", encoding="utf-8") as fh:
+            safe_path = _validate_output_file(output_file)
+            with open(safe_path, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(fields_data, ensure_ascii=False, indent=2))
             log_tool_call("snow_table_fields", {**audit_params, "output_file": output_file, "field_count": len(fields_data)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
             return _json.dumps({"saved_to": output_file, "count": len(fields_data)})
