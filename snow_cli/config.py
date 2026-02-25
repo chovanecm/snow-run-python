@@ -78,7 +78,7 @@ class Config:
 
     def save_instance(self, instance: str, user: str, password: str, set_default: bool = False):
         """Save instance configuration to file"""
-        self.snow_dir.mkdir(parents=True, exist_ok=True)
+        self.snow_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         # Load existing config
         config = {}
@@ -110,8 +110,9 @@ class Config:
             config["default_instance"] = instance
 
         # Save config with restricted permissions
-        self.config_file.write_text(json.dumps(config, indent=2))
-        self.config_file.chmod(0o600)  # Read/write for owner only
+        fd = os.open(str(self.config_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(config, indent=2))
 
         return keyring_success
 
@@ -151,7 +152,9 @@ class Config:
             raise ValueError(f"Instance {instance} not configured. Run 'snow add' first.")
 
         config["default_instance"] = instance
-        self.config_file.write_text(json.dumps(config, indent=2))
+        fd = os.open(str(self.config_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(config, indent=2))
 
     def remove_instance(self, instance: str):
         """Remove instance configuration"""
@@ -178,7 +181,9 @@ class Config:
                 else:
                     config["default_instance"] = None
 
-            self.config_file.write_text(json.dumps(config, indent=2))
+            fd = os.open(str(self.config_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(config, indent=2))
 
     @property
     def tmp_dir(self) -> Path:
@@ -186,7 +191,7 @@ class Config:
         if not self.instance:
             raise ValueError("snow_instance not set")
         path = self.snow_dir / "tmp" / self.instance
-        path.mkdir(parents=True, exist_ok=True)
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
         return path
 
     @property

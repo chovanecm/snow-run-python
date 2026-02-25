@@ -1,6 +1,7 @@
 """ServiceNow command implementations"""
 import csv
 import io
+import os
 import re
 import sys
 import json
@@ -144,7 +145,9 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
 
         # Save raw output for debugging
         output_file = config.tmp_dir / "last_run_output.txt"
-        output_file.write_text(response.text)
+        fd = os.open(str(output_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(response.text)
 
         # Parse and display output
         _parse_and_display_output(response.text)
