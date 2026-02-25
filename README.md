@@ -2,6 +2,8 @@
 
 Run ServiceNow Background Scripts from your terminal — fast, reliable, and cross‑platform. The CLI also handles login, elevation, multi‑instance management, and secure credential storage with persistent sessions.
 
+This tool ships as both a **CLI** and an **MCP (Model Context Protocol) server**, so you can use it directly from the terminal or integrate it with AI assistants like GitHub Copilot and Claude.
+
 ## At a Glance
 
 - Run Background Scripts from file or stdin, with parsed output
