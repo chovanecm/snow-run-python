@@ -138,6 +138,8 @@ All tools accept an optional `instance` argument; omit it to use the default con
 
 > **Context window tip:** `snow_record_search` and `snow_table_fields` return data inline by default. Always specify `limit` for record searches. For large tables or result sets, pass `output_file` to save to disk — the tool returns only `{"saved_to": "...", "count": N}` instead of the full payload.
 
+> **Security:** Destructive tools (`snow_run_script`, `snow_elevate`, `snow_login`) are annotated so MCP clients will prompt for human confirmation before executing. All MCP calls are logged to `~/.snow-run/audit.log`. See [SECURITY.md](SECURITY.md) for the full MCP threat model and safeguards.
+
 ## Table Schema
 
 Use `snow table fields TABLE_NAME` to inspect all columns on a table, including those inherited from parent tables.

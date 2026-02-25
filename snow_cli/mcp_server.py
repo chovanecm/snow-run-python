@@ -1,13 +1,33 @@
 """MCP server mode for ServiceNow CLI"""
 import io
+import time
 import contextlib
 from typing import Optional, List
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from .config import Config
 from .commands import login, elevate, run_script, search_records_json, table_fields_json, count_records_value, _validate_output_file
 from .instance_manager import list_instances
+from .audit import log_tool_call
+
+
+# -- Annotation presets -------------------------------------------------------
+
+_DESTRUCTIVE = ToolAnnotations(
+    destructive_hint=True,
+    read_only_hint=False,
+    idempotent_hint=False,
+    open_world_hint=True,
+)
+
+_READ_ONLY = ToolAnnotations(
+    destructive_hint=False,
+    read_only_hint=True,
+    idempotent_hint=True,
+    open_world_hint=True,
+)
 
 mcp = FastMCP(
     "ServiceNow CLI",
@@ -56,7 +76,7 @@ def _run_without_config_with_capture(fn, *args, **kwargs) -> str:
     return "\n".join(parts)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def snow_run_script(script: str, instance: Optional[str] = None) -> str:
     """Execute a JavaScript background script on a ServiceNow instance.
 
@@ -65,39 +85,63 @@ def snow_run_script(script: str, instance: Optional[str] = None) -> str:
         instance: ServiceNow instance hostname (e.g. dev1234.service-now.com).
                   Omit to use the default configured instance.
     """
-    config = Config(instance=instance)
-    return _run_with_capture(config, run_script, script_content=script)
+    t0 = time.monotonic()
+    try:
+        config = Config(instance=instance)
+        result = _run_with_capture(config, run_script, script_content=script)
+        log_tool_call("snow_run_script", {"instance": instance or "(default)", "script_length": len(script)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
+    except Exception as e:
+        log_tool_call("snow_run_script", {"instance": instance or "(default)", "script_length": len(script)}, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
+        raise
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def snow_login(instance: Optional[str] = None) -> str:
     """Log in to a ServiceNow instance and persist the session cookie.
 
     Args:
         instance: ServiceNow instance hostname. Omit to use the default instance.
     """
-    config = Config(instance=instance)
-    return _run_with_capture(config, login)
+    t0 = time.monotonic()
+    try:
+        config = Config(instance=instance)
+        result = _run_with_capture(config, login)
+        log_tool_call("snow_login", {"instance": instance or "(default)"}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
+    except Exception as e:
+        log_tool_call("snow_login", {"instance": instance or "(default)"}, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
+        raise
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def snow_elevate(instance: Optional[str] = None) -> str:
     """Elevate privileges to the security_admin role on a ServiceNow instance.
 
     Args:
         instance: ServiceNow instance hostname. Omit to use the default instance.
     """
-    config = Config(instance=instance)
-    return _run_with_capture(config, elevate)
+    t0 = time.monotonic()
+    try:
+        config = Config(instance=instance)
+        result = _run_with_capture(config, elevate)
+        log_tool_call("snow_elevate", {"instance": instance or "(default)"}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
+        return result
+    except Exception as e:
+        log_tool_call("snow_elevate", {"instance": instance or "(default)"}, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
+        raise
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def snow_list_instances() -> str:
     """List all configured ServiceNow instances."""
-    return _run_without_config_with_capture(list_instances)
+    t0 = time.monotonic()
+    result = _run_without_config_with_capture(list_instances)
+    log_tool_call("snow_list_instances", {}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
+    return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def snow_record_search(
     table: str,
     query: Optional[str] = None,
@@ -130,6 +174,8 @@ def snow_record_search(
         instance: ServiceNow instance hostname. Omit to use default instance.
     """
     import json as _json
+    t0 = time.monotonic()
+    audit_params = {"table": table, "query": query, "limit": limit, "instance": instance or "(default)"}
     config = Config(instance=instance)
     effective_fields = "sys_id" if sys_id else fields
     try:
@@ -148,13 +194,16 @@ def snow_record_search(
             with open(output_file, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(records, ensure_ascii=False, indent=2))
             field_names = list(records[0].keys()) if records else []
+            log_tool_call("snow_record_search", {**audit_params, "output_file": output_file, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
             return _json.dumps({"saved_to": output_file, "count": len(records), "fields": field_names})
+        log_tool_call("snow_record_search", {**audit_params, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps(records, ensure_ascii=False, indent=2)
     except Exception as e:
+        log_tool_call("snow_record_search", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def snow_table_fields(
     table: str,
     output_file: Optional[str] = None,
@@ -175,6 +224,8 @@ def snow_table_fields(
         instance: ServiceNow instance hostname. Omit to use default instance.
     """
     import json as _json
+    t0 = time.monotonic()
+    audit_params = {"table": table, "instance": instance or "(default)"}
     config = Config(instance=instance)
     try:
         fields_data = table_fields_json(config, table)
@@ -182,13 +233,16 @@ def snow_table_fields(
             _validate_output_file(output_file)
             with open(output_file, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(fields_data, ensure_ascii=False, indent=2))
+            log_tool_call("snow_table_fields", {**audit_params, "output_file": output_file, "field_count": len(fields_data)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
             return _json.dumps({"saved_to": output_file, "count": len(fields_data)})
+        log_tool_call("snow_table_fields", {**audit_params, "field_count": len(fields_data)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps(fields_data, ensure_ascii=False, indent=2)
     except Exception as e:
+        log_tool_call("snow_table_fields", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_ONLY)
 def snow_record_count(
     table: str,
     query: Optional[str] = None,
@@ -204,11 +258,15 @@ def snow_record_count(
         instance: ServiceNow instance hostname. Omit to use default instance.
     """
     import json as _json
+    t0 = time.monotonic()
+    audit_params = {"table": table, "query": query, "instance": instance or "(default)"}
     config = Config(instance=instance)
     try:
         count = count_records_value(config, table, query=query)
+        log_tool_call("snow_record_count", {**audit_params, "count": count}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"count": count})
     except Exception as e:
+        log_tool_call("snow_record_count", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"error": str(e)})
 
 
