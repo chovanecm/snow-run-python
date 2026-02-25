@@ -29,6 +29,18 @@ _READ_ONLY = ToolAnnotations(
     open_world_hint=True,
 )
 
+_SENSITIVE_TABLES = frozenset({
+    "sys_user",
+    "sys_user_role",
+    "sys_user_group",
+    "sys_user_has_role",
+    "sys_properties",
+    "sys_auth_profile",
+    "cmn_schedule",
+    "cmn_location",
+    "cmn_department",
+})
+
 mcp = FastMCP(
     "ServiceNow CLI",
     instructions=(
@@ -79,6 +91,8 @@ def _run_without_config_with_capture(fn, *args, **kwargs) -> str:
 @mcp.tool(annotations=_DESTRUCTIVE)
 def snow_run_script(script: str, instance: Optional[str] = None) -> str:
     """Execute a JavaScript background script on a ServiceNow instance.
+
+    WARNING: This tool can modify data. Use with caution. Prefer `snow_record_search` for reading data.
 
     Args:
         script: JavaScript source code to run (e.g. "gs.print('hello');")
@@ -156,6 +170,8 @@ def snow_record_search(
 ) -> str:
     """Search records in a ServiceNow table. Returns JSON array of records.
 
+    Prefer this tool over `snow_run_script` for retrieving data.
+
     Always specify `limit` to avoid large inline responses that consume context.
     Use `output_file` to save results to disk and receive only metadata back —
     ideal for large exports or when the caller does not need the data inline.
@@ -178,6 +194,10 @@ def snow_record_search(
     audit_params = {"table": table, "query": query, "limit": limit, "instance": instance or "(default)"}
     config = Config(instance=instance)
     effective_fields = "sys_id" if sys_id else fields
+    warning_prefix = ""
+    if table in _SENSITIVE_TABLES:
+        warning_prefix = f"WARNING: Accessing sensitive table '{table}'. Handle data with care.\n"
+
     try:
         records = search_records_json(
             config,
@@ -195,9 +215,9 @@ def snow_record_search(
                 fh.write(_json.dumps(records, ensure_ascii=False, indent=2))
             field_names = list(records[0].keys()) if records else []
             log_tool_call("snow_record_search", {**audit_params, "output_file": output_file, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
-            return _json.dumps({"saved_to": output_file, "count": len(records), "fields": field_names})
+            return _json.dumps({"warning": warning_prefix.strip(), "saved_to": output_file, "count": len(records), "fields": field_names})
         log_tool_call("snow_record_search", {**audit_params, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
-        return _json.dumps(records, ensure_ascii=False, indent=2)
+        return warning_prefix + _json.dumps(records, ensure_ascii=False, indent=2)
     except Exception as e:
         log_tool_call("snow_record_search", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"error": str(e)})
@@ -227,6 +247,10 @@ def snow_table_fields(
     t0 = time.monotonic()
     audit_params = {"table": table, "instance": instance or "(default)"}
     config = Config(instance=instance)
+    warning_prefix = ""
+    if table in _SENSITIVE_TABLES:
+        warning_prefix = f"WARNING: Accessing sensitive table '{table}'. Handle data with care.\n"
+
     try:
         fields_data = table_fields_json(config, table)
         if output_file:
@@ -234,9 +258,9 @@ def snow_table_fields(
             with open(safe_path, "w", encoding="utf-8") as fh:
                 fh.write(_json.dumps(fields_data, ensure_ascii=False, indent=2))
             log_tool_call("snow_table_fields", {**audit_params, "output_file": output_file, "field_count": len(fields_data)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
-            return _json.dumps({"saved_to": output_file, "count": len(fields_data)})
+            return _json.dumps({"warning": warning_prefix.strip(), "saved_to": output_file, "count": len(fields_data)})
         log_tool_call("snow_table_fields", {**audit_params, "field_count": len(fields_data)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
-        return _json.dumps(fields_data, ensure_ascii=False, indent=2)
+        return warning_prefix + _json.dumps(fields_data, ensure_ascii=False, indent=2)
     except Exception as e:
         log_tool_call("snow_table_fields", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"error": str(e)})
