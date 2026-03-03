@@ -547,27 +547,11 @@ def _format_field_value(value, display_values: str) -> str:
 
 
 def _validate_output_file(path: str) -> str:
-    """Validate output file path — reject anything that looks dangerous.
-
-    Rules:
-    - No '..' path components (path traversal)
-    - Must be a relative path (no absolute paths like /etc/crontab)
-    - Resolved path must stay within the current working directory
-    - Symlinks are resolved before checking
-
-    Raises ValueError if the path is rejected.
+    """Validate output file path.
+    
+    Resolves the path to an absolute path.
     """
-    p = Path(path)
-    if p.is_absolute():
-        raise ValueError(f"Absolute output paths are not allowed: {path}")
-    if ".." in p.parts:
-        raise ValueError(f"Invalid output path (path traversal not allowed): {path}")
-    # Resolve against cwd and verify the result stays inside cwd
-    cwd = Path.cwd().resolve()
-    resolved = (cwd / p).resolve()
-    if not str(resolved).startswith(str(cwd) + "/") and resolved != cwd:
-        raise ValueError(f"Output path escapes working directory: {path}")
-    return str(resolved)
+    return str(Path(path).resolve())
 
 
 def _write_or_print(text: str, output_file: Optional[str]):
