@@ -90,9 +90,9 @@ def _run_without_config_with_capture(fn, *args, **kwargs) -> str:
 
 @mcp.tool(annotations=_DESTRUCTIVE)
 def snow_run_script(script: str, instance: Optional[str] = None) -> str:
-    """Execute a JavaScript background script on a ServiceNow instance.
+    """Execute a JavaScript background script on a ServiceNow instance if snow_record_search, snow_table_fields, snow_record_count are not sufficient.
 
-    WARNING: This tool can modify data. Use with caution. Prefer `snow_record_search` for reading data.
+
 
     Args:
         script: JavaScript source code to run (e.g. "gs.print('hello');")
