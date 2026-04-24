@@ -1,14 +1,15 @@
 """ServiceNow command implementations"""
 import csv
+import html
 import io
+import json
 import os
 import re
+import secrets
 import sys
-import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-import html
+from typing import List, Optional, Sequence, Tuple
 
 from .config import Config
 from .session import SnowSession
@@ -21,6 +22,9 @@ DISPLAY_VALUE_MAP = {
 }
 
 FORMAT_CHOICES = ["table", "tsv", "csv", "json", "xml", "excel"]
+SCRIPT_OUTPUT_PREFIX = "*** Script:"
+PRE_BLOCK_RE = re.compile(r"<PRE\b[^>]*>(.*?)</PRE>", re.DOTALL | re.IGNORECASE)
+BR_TAG_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 
 def login(config: Config) -> int:
@@ -115,6 +119,9 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
                 # Read from stdin
                 script_content = sys.stdin.read()
 
+        start_marker, end_marker = _generate_output_markers()
+        wrapped_script = _wrap_script_with_output_markers(script_content, start_marker, end_marker)
+
         session = SnowSession(config.instance, config.cookie_file)
 
         # Get script execution token
@@ -135,7 +142,7 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
                 "runscript": "Run script",
                 "record_for_rollback": "on",
                 "quota_managed_transaction": "on",
-                "script": script_content,
+                "script": wrapped_script,
             },
         )
 
@@ -150,7 +157,7 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
             f.write(response.text)
 
         # Parse and display output
-        _parse_and_display_output(response.text)
+        _parse_and_display_output(response.text, start_marker=start_marker, end_marker=end_marker)
         return 0
 
     except FileNotFoundError:
@@ -161,50 +168,135 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
         return 1
 
 
-def _parse_and_display_output(html_response: str):
-    """Parse ServiceNow script output and display stdout/stderr separately"""
-    # Extract script output from HTML
-    # ServiceNow wraps output in <PRE> tags with markers like:
-    # *** Script: (stdout content)
-    # <BR/> (stderr content)
+def _generate_output_markers() -> Tuple[str, str]:
+    token = secrets.token_hex(16)
+    return (
+        f"__SNOW_RUN_START_{token}__",
+        f"__SNOW_RUN_END_{token}__",
+    )
 
-    stdout_parts = []
-    stderr_parts = []
 
-    # Find all <PRE> blocks
-    pre_blocks = re.findall(r"<PRE>(.*?)</PRE>", html_response, re.DOTALL | re.IGNORECASE)
+def _wrap_script_with_output_markers(script_content: str, start_marker: str, end_marker: str) -> str:
+    # Keep the wrapper to simple surrounding prints so the user's script stays
+    # as close as possible to its original execution shape.
+    return "\n".join([
+        f"gs.print({json.dumps(start_marker)});",
+        script_content,
+        f"gs.print({json.dumps(end_marker)});",
+    ])
 
-    for block in pre_blocks:
-        # Decode HTML entities
-        block = html.unescape(block)
 
-        # Split by script markers
-        # *** Script: indicates stdout
-        # <BR/> indicates stderr
-        parts = re.split(r"\*\*\* Script: |<BR/>|<br/>", block, flags=re.IGNORECASE)
+def _extract_output_events(html_response: str) -> List[Tuple[str, str]]:
+    events: List[Tuple[str, str]] = []
 
-        mode = None
-        for i, part in enumerate(parts):
-            part = part.strip()
-            if not part:
+    for block in PRE_BLOCK_RE.findall(html_response):
+        normalized_block = BR_TAG_RE.sub("\n", html.unescape(block))
+        for raw_line in normalized_block.splitlines():
+            line = raw_line.strip()
+            if not line:
                 continue
-
-            # Alternate between stdout and stderr based on marker
-            if "*** Script:" in block:
-                # First part after *** Script: is stdout
-                if i % 2 == 1:
-                    stdout_parts.append(part)
-                else:
-                    stderr_parts.append(part)
+            if line.startswith(SCRIPT_OUTPUT_PREFIX):
+                events.append(("stdout", line[len(SCRIPT_OUTPUT_PREFIX):].lstrip()))
             else:
-                # If no script marker, treat as stderr
-                stderr_parts.append(part)
+                events.append(("stderr", line))
 
-    # Print stdout
+    return events
+
+
+def _find_marker_indexes(stdout_lines: Sequence[str], start_marker: Optional[str], end_marker: Optional[str]) -> Tuple[Optional[int], Optional[int]]:
+    if not start_marker or not end_marker:
+        return None, None
+
+    start_index = None
+    for index, line in enumerate(stdout_lines):
+        if line == start_marker:
+            start_index = index
+            break
+
+    if start_index is None:
+        return None, None
+
+    end_index = None
+    for index in range(start_index + 1, len(stdout_lines)):
+        if stdout_lines[index] == end_marker:
+            end_index = index
+            break
+
+    return start_index, end_index
+
+
+def _parse_output_lines(
+    html_response: str,
+    start_marker: Optional[str] = None,
+    end_marker: Optional[str] = None,
+) -> Tuple[List[str], List[str]]:
+    events = _extract_output_events(html_response)
+    stdout_lines = [text for channel, text in events if channel == "stdout"]
+    start_index, end_index = _find_marker_indexes(stdout_lines, start_marker, end_marker)
+
+    filtered_stdout: List[str] = []
+    filtered_stderr: List[str] = []
+    stdout_position = -1
+
+    for channel, text in events:
+        if channel != "stdout":
+            filtered_stderr.append(text)
+            continue
+
+        stdout_position += 1
+
+        if start_index is None:
+            filtered_stdout.append(text)
+            continue
+
+        if stdout_position < start_index:
+            filtered_stderr.append(text)
+            continue
+
+        if stdout_position == start_index:
+            continue
+
+        if end_index is None:
+            filtered_stdout.append(text)
+            continue
+
+        if stdout_position < end_index:
+            filtered_stdout.append(text)
+            continue
+
+        if stdout_position == end_index:
+            continue
+
+        filtered_stderr.append(text)
+
+    if start_marker and end_marker:
+        if start_index is None and end_marker in stdout_lines:
+            filtered_stderr.append(
+                "Warning: ServiceNow output start marker was not found; showing best-effort stdout."
+            )
+        elif start_index is not None and end_index is None:
+            filtered_stderr.append(
+                "Warning: ServiceNow output end marker was not found; showing best-effort stdout."
+            )
+
+    return filtered_stdout, filtered_stderr
+
+
+def _parse_and_display_output(
+    html_response: str,
+    start_marker: Optional[str] = None,
+    end_marker: Optional[str] = None,
+):
+    """Parse ServiceNow script output and display stdout/stderr separately"""
+    stdout_parts, stderr_parts = _parse_output_lines(
+        html_response,
+        start_marker=start_marker,
+        end_marker=end_marker,
+    )
+
     for line in stdout_parts:
         print(line)
 
-    # Print stderr to stderr
     for line in stderr_parts:
         if line:
             print(line, file=sys.stderr)

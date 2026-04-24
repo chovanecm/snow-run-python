@@ -6,7 +6,7 @@ This tool ships as both a **CLI** and an **MCP (Model Context Protocol) server**
 
 ## At a Glance
 
-- Run Background Scripts from file or stdin, with parsed output
+- Run Background Scripts from file or stdin, with parsed output isolated from ServiceNow wrapper noise
 - Login and persist sessions (cookies saved per instance)
 - Elevate to `security_admin` when needed
 - Manage multiple instances: add, list, use (set default), remove, info
@@ -51,7 +51,7 @@ This project is the next-generation rewrite of `snow-run`:
 
 ## Features
 
-- **Background Scripts (core)**: Run from file or stdin, parsed output, raw HTML saved for troubleshooting
+- **Background Scripts (core)**: Run from file or stdin, keep canonical script stdout separate from ServiceNow-added noise, raw HTML saved for troubleshooting
 - **Login + elevation**: Authenticate and elevate to `security_admin` when required
 - **Persistent sessions**: Cookies stored per instance for reuse
 - **Multi-instance management**: add/list/use/remove, with a default instance
@@ -337,6 +337,7 @@ snow -i dev5678.service-now.com elevate
 ## Troubleshooting & Debugging
 
 - Last raw output (HTML) after running scripts: `~/.snow-run/tmp/{instance}/last_run_output.txt`
+- `snow run` now wraps each script with generated boundary markers so extra ServiceNow text before or after your real output stays on stderr diagnostics instead of polluting stdout.
 - Verbose HTTP logging (`--debug`) is planned.
 - On errors, the CLI prints clear messages and relevant HTTP status codes.
 
@@ -367,8 +368,8 @@ snow login
 # Install in development mode
 pip install -e .
 
-# Run tests (coming soon)
-pytest
+# Run tests
+PYTHONPATH=. python3 -m unittest discover -s tests -q
 
 # Add logging for debugging
 import logging
