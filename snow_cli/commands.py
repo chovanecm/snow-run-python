@@ -1,4 +1,5 @@
 """ServiceNow command implementations"""
+import contextlib
 import csv
 import html
 import io
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from .config import Config
-from .session import SnowSession
+from .session import ScriptTokenError, SnowSession
 
 
 DISPLAY_VALUE_MAP = {
@@ -105,7 +106,12 @@ def elevate(config: Config) -> int:
         return 1
 
 
-def run_script(config: Config, script_file: Optional[str] = None, script_content: Optional[str] = None) -> int:
+def run_script(
+    config: Config,
+    script_file: Optional[str] = None,
+    script_content: Optional[str] = None,
+    auto_login: bool = False,
+) -> int:
     """Run a background script on ServiceNow"""
     try:
         config.ensure_instance_set()
@@ -119,46 +125,20 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
                 # Read from stdin
                 script_content = sys.stdin.read()
 
-        start_marker, end_marker = _generate_output_markers()
-        wrapped_script = _wrap_script_with_output_markers(script_content, start_marker, end_marker)
+        try:
+            return _run_script_once(config, script_content)
+        except ScriptTokenError as exc:
+            if not auto_login:
+                raise
 
-        session = SnowSession(config.instance, config.cookie_file)
+            print(str(exc), file=sys.stderr)
 
-        # Get script execution token
-        token = session.get_script_token()
+            if _run_command_with_output_on_stderr(login, config) != 0:
+                return 1
+            if _run_command_with_output_on_stderr(elevate, config) != 0:
+                return 1
 
-        # Execute script
-        response = session.post(
-            "/sys.scripts.do",
-            headers={
-                "Connection": "keep-alive",
-                "Pragma": "no-cache",
-                "Cache-Control": "no-cache",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            },
-            data={
-                "sysparm_ck": token,
-                "runscript": "Run script",
-                "record_for_rollback": "on",
-                "quota_managed_transaction": "on",
-                "script": wrapped_script,
-            },
-        )
-
-        if response.status_code != 200:
-            print(f"Script execution failed with status: {response.status_code}", file=sys.stderr)
-            return 1
-
-        # Save raw output for debugging
-        output_file = config.tmp_dir / "last_run_output.txt"
-        fd = os.open(str(output_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(response.text)
-
-        # Parse and display output
-        _parse_and_display_output(response.text, start_marker=start_marker, end_marker=end_marker)
-        return 0
+            return _run_script_once(config, script_content)
 
     except FileNotFoundError:
         print(f"Script file not found: {script_file}", file=sys.stderr)
@@ -166,6 +146,51 @@ def run_script(config: Config, script_file: Optional[str] = None, script_content
     except Exception as e:
         print(f"Script execution error: {e}", file=sys.stderr)
         return 1
+
+
+def _run_command_with_output_on_stderr(fn, *args, **kwargs) -> int:
+    with contextlib.redirect_stdout(sys.stderr), contextlib.redirect_stderr(sys.stderr):
+        return fn(*args, **kwargs)
+
+
+def _run_script_once(config: Config, script_content: str) -> int:
+    session = SnowSession(config.instance, config.cookie_file)
+
+    token = session.get_script_token()
+    start_marker, end_marker = _generate_output_markers()
+    wrapped_script = _wrap_script_with_output_markers(script_content, start_marker, end_marker)
+
+    response = session.post(
+        "/sys.scripts.do",
+        headers={
+            "Connection": "keep-alive",
+            "Pragma": "no-cache",
+            "Cache-Control": "no-cache",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+        },
+        data={
+            "sysparm_ck": token,
+            "runscript": "Run script",
+            "record_for_rollback": "on",
+            "quota_managed_transaction": "on",
+            "script": wrapped_script,
+        },
+    )
+
+    if response.status_code != 200:
+        print(f"Script execution failed with status: {response.status_code}", file=sys.stderr)
+        return 1
+
+    # Save raw output for debugging
+    output_file = config.tmp_dir / "last_run_output.txt"
+    fd = os.open(str(output_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(response.text)
+
+    # Parse and display output
+    _parse_and_display_output(response.text, start_marker=start_marker, end_marker=end_marker)
+    return 0
 
 
 def _generate_output_markers() -> Tuple[str, str]:

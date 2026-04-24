@@ -29,6 +29,8 @@ snow login
 echo "gs.print('Hello');" | snow run
 # or from file
 snow run example.js
+# retry once with automatic login + elevate if the script token cannot be obtained
+snow run --auto-login example.js
 
 # Elevate if your task requires security_admin
 snow elevate
@@ -110,7 +112,7 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow info` — Show current configuration and paths
 - `snow login` — Login and persist session cookies
 - `snow elevate` — Elevate to `security_admin`
-- `snow run [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
+- `snow run [--auto-login] [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
 - `snow record search [options] TABLE_NAME` — Query table records
 - `snow record count [-q QUERY] TABLE_NAME` — Count matching records
 - `snow r search [options] TABLE_NAME` — Alias for `snow record search`
@@ -324,6 +326,7 @@ snow -i dev5678.service-now.com login
 
 # Run scripts
 snow run script.js
+snow run --auto-login script.js
 echo "gs.print('Hello');" | snow run
 
 # Run on a specific instance
@@ -338,6 +341,7 @@ snow -i dev5678.service-now.com elevate
 
 - Last raw output (HTML) after running scripts: `~/.snow-run/tmp/{instance}/last_run_output.txt`
 - `snow run` now wraps each script with generated boundary markers so extra ServiceNow text before or after your real output stays on stderr diagnostics instead of polluting stdout.
+- `snow run --auto-login` retries once with `login` + `elevate` if the initial failure is specifically “Cannot get security token ...”; all auto-auth progress stays on stderr.
 - Verbose HTTP logging (`--debug`) is planned.
 - On errors, the CLI prints clear messages and relevant HTTP status codes.
 

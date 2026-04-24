@@ -43,18 +43,20 @@ def elevate_cmd(config):
 
 @main.command()
 @click.argument("script_file", required=False)
+@click.option("--auto-login", is_flag=True, help="If script token acquisition fails, run login + elevate and retry once")
 @click.pass_obj
-def run(config, script_file):
+def run(config, script_file, auto_login):
     """Run a background script on ServiceNow
 
     SCRIPT_FILE: Path to JavaScript file to execute (or '-' for stdin)
 
     Examples:
       snow run example.js
+      snow run --auto-login example.js
       echo "gs.print('Hello');" | snow run
       snow run < script.js
     """
-    sys.exit(run_script(config, script_file))
+    sys.exit(run_script(config, script_file, auto_login=auto_login))
 
 
 @main.command()

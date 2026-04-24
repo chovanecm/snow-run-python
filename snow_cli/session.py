@@ -7,6 +7,10 @@ import requests
 from requests.cookies import RequestsCookieJar
 
 
+class ScriptTokenError(ValueError):
+    """Raised when the background-script execution token cannot be obtained."""
+
+
 class SnowSession:
     """Manages HTTP session with ServiceNow including cookie persistence"""
 
@@ -81,7 +85,7 @@ class SnowSession:
             r'sysparm_ck[^>]*value="([a-zA-Z0-9_]+)"'
         )
         if not token:
-            raise ValueError(
+            raise ScriptTokenError(
                 f"Cannot get security token for {self.instance}. "
                 "Try logging in again (snow login)"
             )
