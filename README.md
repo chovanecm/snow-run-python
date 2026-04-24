@@ -65,7 +65,21 @@ This project is the next-generation rewrite of `snow-run`:
 
 Choose one of the following:
 
-- Install via pipx (recommended for CLIs)
+- Install via uv (recommended)
+
+  ```bash
+  uv tool install git+https://github.com/chovanecm/snow-run-python@main
+  # upgrade later
+  uv tool upgrade snow
+  ```
+
+- Try without installing (uv)
+
+  ```bash
+  uvx --from git+https://github.com/chovanecm/snow-run-python@main snow --help
+  ```
+
+- Install via pipx
 
   ```bash
   pipx install git+https://github.com/chovanecm/snow-run-python@main
@@ -85,7 +99,7 @@ Choose one of the following:
   pipx install "git+https://github.com/chovanecm/snow-run-python@<tag_or_commit>"
   ```
 
-- Try without installing
+- Try without installing (pipx)
 
   ```bash
   pipx run --spec git+https://github.com/chovanecm/snow-run-python@main snow --help
