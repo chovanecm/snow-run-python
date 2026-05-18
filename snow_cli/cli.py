@@ -2,7 +2,7 @@
 import sys
 import click
 from .config import Config
-from .commands import login, elevate, run_script, search_records, table_fields, count_records
+from .commands import login, elevate, run_script, search_records, table_fields, count_records, aggregate_records
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
 @click.group()
@@ -224,6 +224,113 @@ def record_count(config, query, table_name):
 def r_count(config, query, table_name):
     """Count records in a table, optionally filtered by a query."""
     sys.exit(count_records(config, table_name, query=query))
+
+
+_AGGREGATE_FORMAT_OPTION = [
+    click.option(
+        "-F", "--format", "fmt",
+        type=click.Choice(["table", "tsv", "csv", "json"], case_sensitive=False),
+        default="table",
+        show_default=True,
+        help="Output format",
+    ),
+    click.option("-O", "--output", "output_file", default=None, help="Write output to FILE"),
+]
+
+
+def _add_aggregate_format_options(func):
+    for option in reversed(_AGGREGATE_FORMAT_OPTION):
+        func = option(func)
+    return func
+
+
+def _record_aggregate_impl(
+    config, table, query, group_by, count, avg, sum_fields, min_fields, max_fields,
+    having, display_values, fmt, output_file
+):
+    sys.exit(
+        aggregate_records(
+            config=config,
+            table=table,
+            query=query,
+            group_by=list(group_by) if group_by else None,
+            count=count,
+            avg=list(avg) if avg else None,
+            sum_fields=list(sum_fields) if sum_fields else None,
+            min_fields=list(min_fields) if min_fields else None,
+            max_fields=list(max_fields) if max_fields else None,
+            having=having,
+            display_values=display_values.lower(),
+            fmt=fmt.lower(),
+            output_file=output_file,
+        )
+    )
+
+
+@record.command(name="aggregate")
+@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
+@click.option("-g", "--group-by", "group_by", multiple=True, help="Field to group by (can be used multiple times)")
+@click.option("--count", "count", is_flag=True, help="Include COUNT in results")
+@click.option("--avg", "avg", multiple=True, metavar="FIELD", help="Include AVG of FIELD (can be used multiple times)")
+@click.option("--sum", "sum_fields", multiple=True, metavar="FIELD", help="Include SUM of FIELD (can be used multiple times)")
+@click.option("--min", "min_fields", multiple=True, metavar="FIELD", help="Include MIN of FIELD (can be used multiple times)")
+@click.option("--max", "max_fields", multiple=True, metavar="FIELD", help="Include MAX of FIELD (can be used multiple times)")
+@click.option("--having", "having", help="HAVING clause filter (sysparm_having, e.g. COUNT>10)")
+@click.option(
+    "--display-values",
+    type=click.Choice(["values", "display", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help="Return field values, display values, or both",
+)
+@_add_aggregate_format_options
+@click.argument("table_name")
+@click.pass_obj
+def record_aggregate(config, query, group_by, count, avg, sum_fields, min_fields, max_fields,
+                     having, display_values, fmt, output_file, table_name):
+    """Aggregate records in a table using the ServiceNow Aggregate API.
+
+    At least one of --count, --avg, --sum, --min, or --max must be provided.
+
+    Examples:
+      snow record aggregate --count incident
+      snow record aggregate --count -g priority incident
+      snow record aggregate --count -g category -q "active=true" incident
+      snow record aggregate --count --avg reassignment_count -g priority incident
+      snow r a --count -g state problem
+    """
+    _record_aggregate_impl(
+        config, table_name, query, group_by, count, avg, sum_fields, min_fields, max_fields,
+        having, display_values, fmt, output_file,
+    )
+
+
+@r_alias.command(name="a")
+@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
+@click.option("-g", "--group-by", "group_by", multiple=True, help="Field to group by (can be used multiple times)")
+@click.option("--count", "count", is_flag=True, help="Include COUNT in results")
+@click.option("--avg", "avg", multiple=True, metavar="FIELD", help="Include AVG of FIELD (can be used multiple times)")
+@click.option("--sum", "sum_fields", multiple=True, metavar="FIELD", help="Include SUM of FIELD (can be used multiple times)")
+@click.option("--min", "min_fields", multiple=True, metavar="FIELD", help="Include MIN of FIELD (can be used multiple times)")
+@click.option("--max", "max_fields", multiple=True, metavar="FIELD", help="Include MAX of FIELD (can be used multiple times)")
+@click.option("--having", "having", help="HAVING clause filter (sysparm_having, e.g. COUNT>10)")
+@click.option(
+    "--display-values",
+    type=click.Choice(["values", "display", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help="Return field values, display values, or both",
+)
+@_add_aggregate_format_options
+@click.argument("table_name")
+@click.pass_obj
+def r_aggregate(config, query, group_by, count, avg, sum_fields, min_fields, max_fields,
+                having, display_values, fmt, output_file, table_name):
+    """Aggregate records in a table (alias for 'record aggregate')."""
+    _record_aggregate_impl(
+        config, table_name, query, group_by, count, avg, sum_fields, min_fields, max_fields,
+        having, display_values, fmt, output_file,
+    )
 
 
 

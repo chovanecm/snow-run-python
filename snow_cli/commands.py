@@ -562,6 +562,195 @@ def count_records_value(config: Config, table: str, query: Optional[str] = None)
     return _fetch_record_count(config, table, query)
 
 
+def _fetch_aggregate_records(
+    config: Config,
+    table: str,
+    query: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    count: bool = False,
+    avg: Optional[List[str]] = None,
+    sum_fields: Optional[List[str]] = None,
+    min_fields: Optional[List[str]] = None,
+    max_fields: Optional[List[str]] = None,
+    having: Optional[str] = None,
+    display_values: str = "both",
+) -> List[dict]:
+    """Call the Aggregate API and return flattened result rows. Raises on error."""
+    import requests as _requests
+
+    params: dict = {
+        "sysparm_display_value": DISPLAY_VALUE_MAP[display_values],
+    }
+    if query:
+        params["sysparm_query"] = query
+    if group_by:
+        params["sysparm_group_by"] = ",".join(group_by)
+    if count:
+        params["sysparm_count"] = "true"
+    if avg:
+        params["sysparm_avg"] = ",".join(avg)
+    if sum_fields:
+        params["sysparm_sum"] = ",".join(sum_fields)
+    if min_fields:
+        params["sysparm_min"] = ",".join(min_fields)
+    if max_fields:
+        params["sysparm_max"] = ",".join(max_fields)
+    if having:
+        params["sysparm_having"] = having
+
+    response = _requests.get(
+        f"https://{config.instance}/api/now/stats/{table}",
+        params=params,
+        headers={"Accept": "application/json"},
+        auth=(config.user, config.password),
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Aggregate query failed with status code: {response.status_code}\n{response.text}"
+        )
+
+    payload = response.json()
+    raw_results = payload.get("result", [])
+    if isinstance(raw_results, dict):
+        # No group-by: single stats object returned directly
+        raw_results = [raw_results]
+
+    rows = []
+    for item in raw_results:
+        row: dict = {}
+        # Flatten groupby_fields list into the row
+        for gf in item.get("groupby_fields", []):
+            field_name = gf.get("field", "")
+            display_val = gf.get("display_value", "")
+            value_val = gf.get("value", "")
+            if display_values == "display":
+                row[field_name] = display_val
+            elif display_values == "values":
+                row[field_name] = value_val
+            else:
+                row[field_name] = (
+                    f"{display_val} ({value_val})" if display_val != value_val else display_val
+                )
+        # Flatten stats
+        for stat_name, stat_val in item.get("stats", {}).items():
+            row[stat_name] = stat_val
+        rows.append(row)
+    return rows
+
+
+AGGREGATE_FORMAT_CHOICES = ["table", "tsv", "csv", "json"]
+
+
+def aggregate_records(
+    config: Config,
+    table: str,
+    query: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    count: bool = False,
+    avg: Optional[List[str]] = None,
+    sum_fields: Optional[List[str]] = None,
+    min_fields: Optional[List[str]] = None,
+    max_fields: Optional[List[str]] = None,
+    having: Optional[str] = None,
+    display_values: str = "both",
+    fmt: str = "table",
+    output_file: Optional[str] = None,
+) -> int:
+    """Run an aggregate query and print results (CLI output). Returns exit code."""
+    try:
+        config.ensure_credentials_set()
+
+        if not count and not avg and not sum_fields and not min_fields and not max_fields:
+            print(
+                "At least one aggregate function must be specified: "
+                "--count, --avg, --sum, --min, or --max.",
+                file=sys.stderr,
+            )
+            return 1
+
+        if display_values not in DISPLAY_VALUE_MAP:
+            print(
+                "Invalid display values mode. Use one of: values, display, both.",
+                file=sys.stderr,
+            )
+            return 1
+
+        if fmt not in AGGREGATE_FORMAT_CHOICES:
+            print(
+                f"Invalid format. Use one of: {', '.join(AGGREGATE_FORMAT_CHOICES)}",
+                file=sys.stderr,
+            )
+            return 1
+
+        records = _fetch_aggregate_records(
+            config,
+            table,
+            query=query,
+            group_by=group_by,
+            count=count,
+            avg=avg,
+            sum_fields=sum_fields,
+            min_fields=min_fields,
+            max_fields=max_fields,
+            having=having,
+            display_values=display_values,
+        )
+
+        if not records:
+            if fmt == "json":
+                _write_or_print("[]", output_file)
+            else:
+                print("No results.")
+            return 0
+
+        columns = list(records[0].keys())
+        if fmt == "json":
+            _write_or_print(json.dumps(records, ensure_ascii=False, indent=2), output_file)
+        else:
+            _output_records(records, columns, no_header=False, display_values="values",
+                            fmt=fmt, output_file=output_file, table=table)
+        return 0
+
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Aggregate query error: {e}", file=sys.stderr)
+        return 1
+
+
+def aggregate_records_json(
+    config: Config,
+    table: str,
+    query: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    count: bool = False,
+    avg: Optional[List[str]] = None,
+    sum_fields: Optional[List[str]] = None,
+    min_fields: Optional[List[str]] = None,
+    max_fields: Optional[List[str]] = None,
+    having: Optional[str] = None,
+    display_values: str = "both",
+) -> List[dict]:
+    """Run an aggregate query and return results as a list of dicts. Raises on error."""
+    config.ensure_credentials_set()
+    if display_values not in DISPLAY_VALUE_MAP:
+        raise ValueError(f"Invalid display_values '{display_values}'. Use one of: values, display, both.")
+    return _fetch_aggregate_records(
+        config,
+        table,
+        query=query,
+        group_by=group_by,
+        count=count,
+        avg=avg,
+        sum_fields=sum_fields,
+        min_fields=min_fields,
+        max_fields=max_fields,
+        having=having,
+        display_values=display_values,
+    )
+
+
 def search_records(
     config: Config,
     table: str,

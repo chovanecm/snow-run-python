@@ -264,5 +264,224 @@ class CliRunCommandTests(unittest.TestCase):
         self.assertEqual(exit_mock.call_count, 1)
 
 
+class FetchAggregateRecordsTests(unittest.TestCase):
+    """Tests for _fetch_aggregate_records result-flattening logic."""
+
+    def _mock_response(self, payload, status=200):
+        resp = Mock()
+        resp.status_code = status
+        resp.json.return_value = payload
+        resp.text = str(payload)
+        return resp
+
+    def test_count_only_no_groupby_returns_single_row(self):
+        from snow_cli.commands import _fetch_aggregate_records
+
+        payload = {"result": {"stats": {"count": "42"}}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = DummyConfig(tmp_dir)
+            config.user = "u"
+            config.password = "p"
+            with patch("requests.get", return_value=self._mock_response(payload)):
+                rows = _fetch_aggregate_records(config, "incident", count=True)
+        self.assertEqual(rows, [{"count": "42"}])
+
+    def test_groupby_results_are_flattened(self):
+        from snow_cli.commands import _fetch_aggregate_records
+
+        payload = {
+            "result": [
+                {
+                    "groupby_fields": [
+                        {"field": "priority", "value": "1", "display_value": "1 - Critical"}
+                    ],
+                    "stats": {"count": "5"},
+                },
+                {
+                    "groupby_fields": [
+                        {"field": "priority", "value": "2", "display_value": "2 - High"}
+                    ],
+                    "stats": {"count": "12"},
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = DummyConfig(tmp_dir)
+            config.user = "u"
+            config.password = "p"
+            with patch("requests.get", return_value=self._mock_response(payload)):
+                rows = _fetch_aggregate_records(config, "incident", count=True, group_by=["priority"])
+        self.assertEqual(len(rows), 2)
+        self.assertIn("priority", rows[0])
+        self.assertIn("count", rows[0])
+        # display_values="both" default: show "display (value)" when they differ
+        self.assertEqual(rows[0]["priority"], "1 - Critical (1)")
+        self.assertEqual(rows[0]["count"], "5")
+
+    def test_http_error_raises_runtime_error(self):
+        from snow_cli.commands import _fetch_aggregate_records
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = DummyConfig(tmp_dir)
+            config.user = "u"
+            config.password = "p"
+            with patch("requests.get", return_value=self._mock_response({}, status=403)):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _fetch_aggregate_records(config, "incident", count=True)
+        self.assertIn("403", str(ctx.exception))
+
+
+class AggregateRecordsCliTests(unittest.TestCase):
+    """Tests for aggregate_records() function (CLI entry point)."""
+
+    def _make_config(self, tmp_dir):
+        config = DummyConfig(tmp_dir)
+        config.user = "u"
+        config.password = "p"
+        config.ensure_credentials_set = lambda: None
+        return config
+
+    def test_no_aggregate_function_returns_exit_1(self):
+        from snow_cli.commands import aggregate_records
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                code = aggregate_records(config, "incident")
+        self.assertEqual(code, 1)
+        self.assertIn("At least one aggregate function", buf.getvalue())
+
+    def test_count_with_groupby_prints_table(self):
+        from snow_cli.commands import aggregate_records
+
+        payload = {
+            "result": [
+                {
+                    "groupby_fields": [{"field": "state", "value": "1", "display_value": "New"}],
+                    "stats": {"count": "7"},
+                }
+            ]
+        }
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = payload
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            out = io.StringIO()
+            with patch("requests.get", return_value=mock_resp):
+                with redirect_stdout(out):
+                    code = aggregate_records(
+                        config, "incident", count=True, group_by=["state"], fmt="json"
+                    )
+        self.assertEqual(code, 0)
+        import json as _json
+        data = _json.loads(out.getvalue())
+        self.assertEqual(len(data), 1)
+        self.assertIn("state", data[0])
+        self.assertIn("count", data[0])
+        self.assertEqual(data[0]["count"], "7")
+
+    def test_json_format_outputs_valid_json(self):
+        from snow_cli.commands import aggregate_records
+        import json as _json
+
+        payload = {"result": {"stats": {"count": "99"}}}
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = payload
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            out = io.StringIO()
+            with patch("requests.get", return_value=mock_resp):
+                with redirect_stdout(out):
+                    code = aggregate_records(config, "incident", count=True, fmt="json")
+        self.assertEqual(code, 0)
+        data = _json.loads(out.getvalue())
+        self.assertIsInstance(data, list)
+        self.assertEqual(data[0]["count"], "99")
+
+
+class CliAggregateCommandTests(unittest.TestCase):
+    """Integration tests for the CLI aggregate commands via CliRunner."""
+
+    def test_record_aggregate_count_groupby(self):
+        runner = CliRunner()
+        fake_aggregate = Mock(return_value=0)
+
+        with patch.dict(sys.modules, {"keyring": keyring_stub}), \
+             patch("snow_cli.cli.aggregate_records", fake_aggregate), \
+             patch.object(cli_module.sys, "exit", side_effect=SystemExit) as exit_mock:
+            result = runner.invoke(
+                cli_module.main,
+                ["record", "aggregate", "--count", "-g", "priority", "incident"],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(fake_aggregate.call_count, 1)
+        call_kwargs = fake_aggregate.call_args.kwargs
+        self.assertTrue(call_kwargs["count"])
+        self.assertEqual(call_kwargs["group_by"], ["priority"])
+        self.assertEqual(call_kwargs["table"], "incident")
+
+    def test_r_a_alias_works(self):
+        runner = CliRunner()
+        fake_aggregate = Mock(return_value=0)
+
+        with patch.dict(sys.modules, {"keyring": keyring_stub}), \
+             patch("snow_cli.cli.aggregate_records", fake_aggregate), \
+             patch.object(cli_module.sys, "exit", side_effect=SystemExit):
+            result = runner.invoke(
+                cli_module.main,
+                ["r", "a", "--count", "incident"],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(fake_aggregate.call_count, 1)
+        self.assertTrue(fake_aggregate.call_args.kwargs["count"])
+
+    def test_avg_sum_min_max_options_forwarded(self):
+        runner = CliRunner()
+        fake_aggregate = Mock(return_value=0)
+
+        with patch.dict(sys.modules, {"keyring": keyring_stub}), \
+             patch("snow_cli.cli.aggregate_records", fake_aggregate), \
+             patch.object(cli_module.sys, "exit", side_effect=SystemExit):
+            result = runner.invoke(
+                cli_module.main,
+                [
+                    "record", "aggregate",
+                    "--avg", "reassignment_count",
+                    "--sum", "business_duration",
+                    "--min", "opened_at",
+                    "--max", "closed_at",
+                    "incident",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0)
+        kw = fake_aggregate.call_args.kwargs
+        self.assertEqual(kw["avg"], ["reassignment_count"])
+        self.assertEqual(kw["sum_fields"], ["business_duration"])
+        self.assertEqual(kw["min_fields"], ["opened_at"])
+        self.assertEqual(kw["max_fields"], ["closed_at"])
+
+    def test_missing_aggregate_function_exits_1(self):
+        runner = CliRunner()
+
+        with patch.dict(sys.modules, {"keyring": keyring_stub}), \
+             patch("snow_cli.cli.aggregate_records") as fake_aggregate:
+            # aggregate_records returns 1 (validation error) when no agg fn given
+            fake_aggregate.return_value = 1
+            result = runner.invoke(
+                cli_module.main,
+                ["record", "aggregate", "incident"],
+            )
+
+        self.assertEqual(result.exit_code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

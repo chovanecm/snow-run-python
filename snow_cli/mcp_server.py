@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from .config import Config
-from .commands import login, elevate, run_script, search_records_json, table_fields_json, count_records_value, _validate_output_file
+from .commands import login, elevate, run_script, search_records_json, table_fields_json, count_records_value, aggregate_records_json, _validate_output_file
 from .instance_manager import list_instances
 from .audit import log_tool_call
 
@@ -291,6 +291,70 @@ def snow_record_count(
         return _json.dumps({"count": count})
     except Exception as e:
         log_tool_call("snow_record_count", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
+        return _json.dumps({"error": str(e)})
+
+
+@mcp.tool(annotations=_READ_ONLY)
+def snow_record_aggregate(
+    table: str,
+    query: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    count: bool = False,
+    avg: Optional[List[str]] = None,
+    sum_fields: Optional[List[str]] = None,
+    min_fields: Optional[List[str]] = None,
+    max_fields: Optional[List[str]] = None,
+    having: Optional[str] = None,
+    display_values: str = "both",
+    output_file: Optional[str] = None,
+    instance: Optional[str] = None,
+) -> str:
+    """Aggregate records in a ServiceNow table using the Aggregate API.
+
+    Returns a JSON array of result rows. At least one aggregate function must be specified.
+
+    Args:
+        table: ServiceNow table name (e.g. incident, change_request).
+        query: Encoded query string to filter records (sysparm_query).
+        group_by: Field names to group by.
+        count: If true, include COUNT in results.
+        avg: Field names to compute AVG for.
+        sum_fields: Field names to compute SUM for.
+        min_fields: Field names to compute MIN for.
+        max_fields: Field names to compute MAX for.
+        having: HAVING clause filter (e.g. COUNT>10).
+        display_values: One of values, display, both (default both).
+        output_file: If set, save JSON results to this file and return only metadata.
+        instance: ServiceNow instance hostname. Omit to use default instance.
+    """
+    import json as _json
+    t0 = time.monotonic()
+    audit_params = {"table": table, "query": query, "group_by": group_by, "instance": instance or "(default)"}
+    config = Config(instance=instance)
+    try:
+        records = aggregate_records_json(
+            config,
+            table=table,
+            query=query,
+            group_by=group_by,
+            count=count,
+            avg=avg,
+            sum_fields=sum_fields,
+            min_fields=min_fields,
+            max_fields=max_fields,
+            having=having,
+            display_values=display_values,
+        )
+        if output_file:
+            safe_path = _validate_output_file(output_file)
+            with open(safe_path, "w", encoding="utf-8") as fh:
+                fh.write(_json.dumps(records, ensure_ascii=False, indent=2))
+            log_tool_call("snow_record_aggregate", {**audit_params, "output_file": output_file, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
+            return _json.dumps({"saved_to": output_file, "count": len(records)})
+        log_tool_call("snow_record_aggregate", {**audit_params, "record_count": len(records)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
+        return _json.dumps(records, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log_tool_call("snow_record_aggregate", audit_params, "error", error=str(e), duration_ms=int((time.monotonic() - t0) * 1000))
         return _json.dumps({"error": str(e)})
 
 
