@@ -129,8 +129,11 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow run [--auto-login] [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
 - `snow record search [options] TABLE_NAME` — Query table records
 - `snow record count [-q QUERY] TABLE_NAME` — Count matching records
+- `snow record aggregate [options] TABLE_NAME` — Aggregate records (count/avg/sum/min/max with optional group-by)
 - `snow r search [options] TABLE_NAME` — Alias for `snow record search`
 - `snow r count [-q QUERY] TABLE_NAME` — Alias for `snow record count`
+- `snow r a [options] TABLE_NAME` — Alias for `snow record aggregate`
+- `snow r aggregate [options] TABLE_NAME` — Alias for `snow record aggregate`
 - `snow table fields [options] TABLE_NAME` — List all fields (including inherited) with labels and types
 - `snow mcp` — Start the MCP server (stdio) for AI assistant integration
 
@@ -149,6 +152,7 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 | `snow_record_count` | Count records matching an optional query. Returns `{"count": N}`. Lightweight — no context concern. |
 | `snow_table_fields` | List all fields (including inherited) for a table. Returns `{field, label, type, references}` per field. Use `output_file` for large tables. |
 | `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode. Use `output_file` to save large results to disk and return only metadata. |
+| `snow_record_aggregate` | Aggregate records using the Aggregate API (count/avg/sum/min/max with optional group-by and HAVING). Returns JSON array of result rows. |
 
 All tools accept an optional `instance` argument; omit it to use the default configured instance.
 
@@ -210,7 +214,46 @@ snow r count -q "sys_created_on>=2024-01-01" incident
 
 Prints just the integer count — no headers, no formatting.
 
-### Searching records
+### Aggregating records
+
+Use `snow record aggregate` (or alias `snow r a`) to run aggregate queries via the [ServiceNow Aggregate API](https://docs.servicenow.com/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_AggregateAPI.html).
+
+At least one aggregate function must be specified.
+
+```bash
+# Count all incidents
+snow record aggregate --count incident
+
+# Count incidents grouped by priority
+snow record aggregate --count -g priority incident
+
+# Count + average reassignment_count grouped by state, filtered to active only
+snow record aggregate --count --avg reassignment_count -g state -q "active=true" incident
+
+# Count per category, only groups with more than 5 records
+snow r a --count -g category --having "COUNT>5" incident
+
+# Multiple aggregate functions in JSON format
+snow r a --count --min opened_at --max closed_at -g priority -F json incident
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--count` | Include COUNT in results |
+| `--avg FIELD` | Include AVG of field (repeatable) |
+| `--sum FIELD` | Include SUM of field (repeatable) |
+| `--min FIELD` | Include MIN of field (repeatable) |
+| `--max FIELD` | Include MAX of field (repeatable) |
+| `-g, --group-by FIELD` | Group results by field (repeatable) |
+| `-q, --query TEXT` | Encoded query filter (sysparm_query) |
+| `--having TEXT` | HAVING clause filter (e.g. `COUNT>10`) |
+| `--display-values` | `values`/`display`/`both` (default `both`) |
+| `-F, --format` | `table` *(default)*, `tsv`, `csv`, `json` |
+| `-O, --output FILE` | Write output to file |
+
+
 
 Use `snow record search` (or alias `snow r search`) to query ServiceNow tables.
 
