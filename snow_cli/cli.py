@@ -333,6 +333,10 @@ def r_aggregate(config, query, group_by, count, avg, sum_fields, min_fields, max
     )
 
 
+# Also expose as 'snow r aggregate' (long form of the alias)
+r_alias.add_command(r_aggregate, name="aggregate")
+
+
 
 @main.group(name="table")
 def table_group():
