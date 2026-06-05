@@ -483,5 +483,164 @@ class CliAggregateCommandTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 1)
 
 
+class FetchRecordsPaginationTests(unittest.TestCase):
+    """Unit tests for _fetch_records() pagination logic."""
+
+    def _make_config(self, tmp_dir):
+        config = DummyConfig(tmp_dir)
+        config.user = "u"
+        config.password = "p"
+        return config
+
+    def _mock_get(self, pages, link_next_on_pages=None):
+        """Return mock responses for successive page fetches.
+
+        *link_next_on_pages* is an optional set of 0-based page indices that
+        should include a ``Link: rel="next"`` header. All other pages get an
+        empty Link header (signals last page).
+        """
+        link_next_on_pages = set(link_next_on_pages or [])
+        responses = []
+        for idx, page_records in enumerate(pages):
+            mock = Mock()
+            mock.status_code = 200
+            mock.json.return_value = {"result": page_records}
+            if idx in link_next_on_pages:
+                mock.headers.get.return_value = '<...>;rel="next"'
+            else:
+                mock.headers.get.return_value = ""
+            responses.append(mock)
+        return responses
+
+    def test_single_page_no_pagination_needed(self):
+        """When the result fits in one page, only one request is made."""
+        from snow_cli.commands import _fetch_records
+
+        records = [{"sys_id": {"value": str(i), "display_value": str(i)}} for i in range(10)]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", side_effect=self._mock_get([records])) as mock_get:
+                result = _fetch_records(config, "incident")
+
+        self.assertEqual(len(result), 10)
+        self.assertEqual(mock_get.call_count, 1)
+
+    def test_two_pages_are_combined(self):
+        """When the first page is full, a second request is made for the remainder."""
+        from snow_cli.commands import _fetch_records, _DEFAULT_PAGE_SIZE
+
+        page1 = [{"sys_id": {"value": str(i)}} for i in range(_DEFAULT_PAGE_SIZE)]
+        page2 = [{"sys_id": {"value": str(i)}} for i in range(5)]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", side_effect=self._mock_get([page1, page2])) as mock_get:
+                result = _fetch_records(config, "incident")
+
+        self.assertEqual(len(result), _DEFAULT_PAGE_SIZE + 5)
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_limit_within_first_page(self):
+        """When limit <= page_size, only one request is made."""
+        from snow_cli.commands import _fetch_records
+
+        page1 = [{"sys_id": {"value": str(i)}} for i in range(50)]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", side_effect=self._mock_get([page1])) as mock_get:
+                result = _fetch_records(config, "incident", limit=50)
+
+        self.assertEqual(len(result), 50)
+        self.assertEqual(mock_get.call_count, 1)
+
+    def test_zero_limit_returns_empty_without_request(self):
+        """When limit is zero, no request is made."""
+        from snow_cli.commands import _fetch_records
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get") as mock_get:
+                result = _fetch_records(config, "incident", limit=0)
+
+        self.assertEqual(result, [])
+        self.assertEqual(mock_get.call_count, 0)
+
+    def test_limit_spanning_two_pages(self):
+        """When limit > page_size, two requests are made and result is capped at limit."""
+        from snow_cli.commands import _fetch_records, _DEFAULT_PAGE_SIZE
+
+        limit = _DEFAULT_PAGE_SIZE + 200
+        page1 = [{"sys_id": {"value": str(i)}} for i in range(_DEFAULT_PAGE_SIZE)]
+        page2 = [{"sys_id": {"value": str(i)}} for i in range(200)]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", side_effect=self._mock_get([page1, page2])) as mock_get:
+                result = _fetch_records(config, "incident", limit=limit)
+
+        self.assertEqual(len(result), limit)
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_empty_table_returns_empty_list(self):
+        """An empty result on the first page returns an empty list."""
+        from snow_cli.commands import _fetch_records
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", side_effect=self._mock_get([[]])) as mock_get:
+                result = _fetch_records(config, "incident")
+
+        self.assertEqual(result, [])
+        self.assertEqual(mock_get.call_count, 1)
+
+    def test_http_error_raises_runtime_error(self):
+        """A non-200 response raises RuntimeError with the status code."""
+        from snow_cli.commands import _fetch_records
+
+        mock_resp = Mock()
+        mock_resp.status_code = 403
+        mock_resp.text = "Forbidden"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", return_value=mock_resp):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _fetch_records(config, "incident")
+
+        self.assertIn("403", str(ctx.exception))
+
+    def test_offset_increments_correctly(self):
+        """Verify sysparm_offset is incremented by page_size on subsequent requests."""
+        from snow_cli.commands import _fetch_records, _DEFAULT_PAGE_SIZE
+
+        page1 = [{"sys_id": {"value": str(i)}} for i in range(_DEFAULT_PAGE_SIZE)]
+        page2 = [{"sys_id": {"value": str(i)}} for i in range(3)]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            with patch("requests.get", side_effect=self._mock_get([page1, page2])) as mock_get:
+                _fetch_records(config, "incident")
+
+        first_call_params = mock_get.call_args_list[0].kwargs["params"]
+        second_call_params = mock_get.call_args_list[1].kwargs["params"]
+        self.assertEqual(first_call_params["sysparm_offset"], "0")
+        self.assertEqual(second_call_params["sysparm_offset"], str(_DEFAULT_PAGE_SIZE))
+
+    def test_link_next_header_overrides_size_heuristic(self):
+        """When ACL filtering returns fewer records than page_size but Link header
+        says rel=next, pagination continues to the next page."""
+        from snow_cli.commands import _fetch_records, _DEFAULT_PAGE_SIZE
+
+        # Simulate ACL-filtered pages: each returns fewer than page_size records,
+        # but Link header says there are more pages.
+        page1 = [{"sys_id": {"value": str(i)}} for i in range(996)]   # < 1000, but has next
+        page2 = [{"sys_id": {"value": str(i)}} for i in range(200)]   # last page (no next)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self._make_config(tmp_dir)
+            # Only page index 0 gets rel=next; page 1 does not.
+            mocks = self._mock_get([page1, page2], link_next_on_pages={0})
+            with patch("requests.get", side_effect=mocks) as mock_get:
+                result = _fetch_records(config, "incident")
+
+        self.assertEqual(len(result), 996 + 200)
+        self.assertEqual(mock_get.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

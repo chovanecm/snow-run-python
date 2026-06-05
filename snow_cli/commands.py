@@ -327,6 +327,18 @@ def _parse_and_display_output(
             print(line, file=sys.stderr)
 
 
+_DEFAULT_PAGE_SIZE = 1000
+
+# Matches rel="next" in a Link header
+_RE_LINK_NEXT = re.compile(r'rel=["\']next["\']')
+
+
+def _has_next_page(response) -> bool:
+    """Return True if the response Link header contains rel="next"."""
+    link_header = response.headers.get("Link", "")
+    return bool(_RE_LINK_NEXT.search(link_header))
+
+
 def _fetch_records(
     config: Config,
     table: str,
@@ -337,8 +349,20 @@ def _fetch_records(
     limit: Optional[int] = None,
     display_values: str = "both",
 ) -> list:
-    """Fetch records from Table API and return as a list of dicts. Raises on error."""
+    """Fetch records from Table API and return as a list of dicts. Raises on error.
+
+    Automatically paginates using sysparm_offset so that all matching records are
+    returned regardless of the server-side row cap. Uses the Link response header
+    (rel=next) as the authoritative signal for more pages. This handles cases where
+    ACL post-filtering causes fewer records than requested to be returned per page.
+    Falls back to the page-size heuristic when the header is absent.
+
+    When *limit* is set, at most that many records are returned.
+    """
     import requests as _requests
+
+    if limit is not None and limit <= 0:
+        return []
 
     query_parts = []
     if query:
@@ -348,32 +372,52 @@ def _fetch_records(
     if order_by_desc:
         query_parts.extend([f"ORDERBYDESC{field}" for field in order_by_desc if field])
 
-    params = {
+    base_params = {
         "sysparm_display_value": DISPLAY_VALUE_MAP[display_values],
         "sysparm_query": "^".join(query_parts),
     }
     if fields:
-        params["sysparm_fields"] = fields
-    if limit is not None:
-        params["sysparm_limit"] = str(limit)
+        base_params["sysparm_fields"] = fields
 
-    response = _requests.get(
-        f"https://{config.instance}/api/now/table/{table}",
-        params=params,
-        headers={"Accept": "application/json"},
-        auth=(config.user, config.password),
-    )
+    url = f"https://{config.instance}/api/now/table/{table}"
+    auth = (config.user, config.password)
+    headers = {"Accept": "application/json"}
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Record query failed with status code: {response.status_code}\n{response.text}"
-        )
+    all_records: list = []
+    offset = 0
 
-    payload = response.json()
-    records = payload.get("result", [])
-    if isinstance(records, dict):
-        records = [records]
-    return records
+    while True:
+        remaining = limit - len(all_records) if limit is not None else None
+        page_size = min(_DEFAULT_PAGE_SIZE, remaining) if remaining is not None else _DEFAULT_PAGE_SIZE
+
+        params = {**base_params, "sysparm_limit": str(page_size), "sysparm_offset": str(offset)}
+        response = _requests.get(url, params=params, headers=headers, auth=auth)
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Record query failed with status code: {response.status_code}\n{response.text}"
+            )
+
+        payload = response.json()
+        page = payload.get("result", [])
+        if isinstance(page, dict):
+            page = [page]
+
+        all_records.extend(page)
+
+        # Stop if we've collected the requested number of records
+        if limit is not None and len(all_records) >= limit:
+            break
+
+        # Use the Link header to detect more pages; fall back to size heuristic
+        if _has_next_page(response):
+            offset += page_size
+        elif len(page) < page_size:
+            break
+        else:
+            offset += page_size
+
+    return all_records
 
 
 def _get_table_hierarchy(base: str, auth: tuple, table_name: str) -> list:
