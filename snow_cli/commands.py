@@ -147,6 +147,7 @@ def run_script(
             if _run_command_with_output_on_stderr(elevate, config) != 0:
                 return 1
 
+            client.reload_cookies()
             return _run_script_once(client, config, script_content)
 
     except FileNotFoundError:

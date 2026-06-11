@@ -84,6 +84,11 @@ class ServiceNowClient:
             self._load_cookies()
         return self._scraping
 
+    def reload_cookies(self) -> None:
+        """Re-read cookie file into an already-open scraping session."""
+        if self._scraping is not None:
+            self._load_cookies()
+
     def _load_cookies(self):
         if self._cookie_file is None or not self._cookie_file.exists():
             return
