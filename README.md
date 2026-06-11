@@ -26,9 +26,9 @@ Once connected, you can ask your AI assistant things like:
 - *"How many P1 incidents are open right now?"* → calls `snow_record_count`
 - *"Show me all incidents assigned to the network team grouped by priority"* → calls `snow_record_aggregate`
 - *"What fields does the `cmdb_ci_server` table have?"* → calls `snow_table_fields`
-- *"Run this script on my dev instance"* → calls `snow_run_script` (prompts for confirmation)
+- *"Run this script on my dev instance"* → calls `snow_run_script`
 
-Destructive tools (`snow_run_script`, `snow_elevate`, `snow_login`) are annotated for human confirmation in MCP clients. All calls are logged to `~/.snow-run/audit.log`. See [SECURITY.md](SECURITY.md) for the full threat model.
+All MCP calls are logged to `~/.snow-run/audit.log`. See [SECURITY.md](SECURITY.md) for the full threat model.
 
 ---
 
@@ -38,14 +38,17 @@ Run background scripts from file or stdin, query any table, and inspect schemas 
 
 **Run a background script:**
 
-```
-$ echo "gs.info('Hello from ' + gs.getUserName());" | snow run
-Hello from admin
-```
+Scripts execute server-side on your ServiceNow instance — the full ServiceNow API is available exactly as it is in the platform's Script editor: `GlideRecord`, `gs`, `GlideSystem`, workflow APIs, and everything else.
 
 ```
-$ cat fix_stale_records.js | snow run --auto-login
+$ snow run hello.js
+Hello from admin
+
+$ snow run --auto-login fix_stale_records.js
 Records updated: 42
+
+$ echo "gs.info('Hello from ' + gs.getUserName());" | snow run
+Hello from admin
 ```
 
 **Query tables:**
@@ -97,10 +100,11 @@ sys_updated_on     Updated                  glide_date_time
 Run scripts as part of your development workflow, with clean stdout separated from ServiceNow wrapper noise.
 
 ```
-$ snow run --auto-login scripts/update_assignments.js
+$ snow run scripts/update_assignments.js
 Updated 17 records.
-$ echo $?
-0
+
+$ snow run --auto-login scripts/update_assignments.js   # retry with login+elevate if session expired
+Updated 17 records.
 ```
 
 Auto-login retries once with `login` + `elevate` when the session has expired — no manual intervention needed in CI or scheduled jobs.
@@ -396,14 +400,6 @@ snow list
 snow use dev5678.service-now.com
 snow remove dev1234.service-now.com
 snow info
-```
-
-**Environment variables (legacy override; prefer `snow add`):**
-
-```bash
-export snow_instance=dev1234.service-now.com
-export snow_user=admin
-export snow_pwd=your-password
 ```
 
 ---
