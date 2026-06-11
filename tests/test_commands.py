@@ -909,5 +909,29 @@ class TableFieldsTests(unittest.TestCase):
         self.assertEqual(f["defined_on"], "parent_table")  # but origin is ancestor
 
 
+class OutputFormatEnumTests(unittest.TestCase):
+    def test_enum_members_match_expected_formats(self):
+        from snow_cli.commands import OutputFormat
+        values = {f.value for f in OutputFormat}
+        self.assertEqual(values, {"table", "tsv", "csv", "json", "xml", "excel"})
+
+    def test_str_returns_value_not_member_name(self):
+        from snow_cli.commands import OutputFormat
+        self.assertEqual(str(OutputFormat.TABLE), "table")
+        self.assertEqual(str(OutputFormat.EXCEL), "excel")
+
+    def test_aggregate_choices_excludes_xml_and_excel(self):
+        from snow_cli.commands import OutputFormat
+        choices = OutputFormat.aggregate_choices()
+        values = [str(f) for f in choices]
+        self.assertEqual(sorted(values), ["csv", "json", "table", "tsv"])
+
+    def test_string_membership_works_for_plain_strings(self):
+        from snow_cli.commands import OutputFormat
+        self.assertIn("table", list(OutputFormat))
+        self.assertIn("excel", list(OutputFormat))
+        self.assertNotIn("parquet", list(OutputFormat))
+
+
 if __name__ == "__main__":
     unittest.main()

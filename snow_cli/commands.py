@@ -9,6 +9,7 @@ import re
 import secrets
 import sys
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -25,6 +26,22 @@ DISPLAY_VALUE_MAP = {
 SCRIPT_OUTPUT_PREFIX = "*** Script:"
 PRE_BLOCK_RE = re.compile(r"<PRE\b[^>]*>(.*?)</PRE>", re.DOTALL | re.IGNORECASE)
 BR_TAG_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
+class OutputFormat(str, Enum):
+    TABLE = "table"
+    TSV   = "tsv"
+    CSV   = "csv"
+    JSON  = "json"
+    XML   = "xml"
+    EXCEL = "excel"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def aggregate_choices(cls) -> list:
+        return [f for f in cls if f not in {cls.XML, cls.EXCEL}]
 
 
 def login(config: Config) -> int:
@@ -1010,4 +1027,4 @@ _FORMATTERS = {
     "xml":   lambda r, f, nh, dv, of, t: _write_or_print(_build_xml(r, t, dv), of),
     "excel": lambda r, f, nh, dv, of, t: _output_excel(r, f, nh, dv, of),
 }
-FORMAT_CHOICES = list(_FORMATTERS)
+FORMAT_CHOICES = list(OutputFormat)
