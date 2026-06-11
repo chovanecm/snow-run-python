@@ -543,13 +543,8 @@ def table_fields(
             return 0
 
         columns = ["field", "label", "type", "references"]
-        if fmt == "json":
-            _write_or_print(json.dumps(fields_data, ensure_ascii=False, indent=2), output_file)
-        elif fmt == "xml":
-            _write_or_print(_build_xml(fields_data, "sys_dictionary", "values"), output_file)
-        else:
-            _output_records(fields_data, columns, no_header=False, display_values="values",
-                            fmt=fmt, output_file=output_file, table="sys_dictionary")
+        _output_records(fields_data, columns, no_header=False, display_values="values",
+                        fmt=fmt, output_file=output_file, table="sys_dictionary")
         return 0
     except RuntimeError as e:
         print(str(e), file=sys.stderr)
@@ -747,11 +742,8 @@ def aggregate_records(
             return 0
 
         columns = list(records[0].keys())
-        if fmt == "json":
-            _write_or_print(json.dumps(records, ensure_ascii=False, indent=2), output_file)
-        else:
-            _output_records(records, columns, no_header=False, display_values="values",
-                            fmt=fmt, output_file=output_file, table=table)
+        _output_records(records, columns, no_header=False, display_values="values",
+                        fmt=fmt, output_file=output_file, table=table)
         return 0
 
     except RuntimeError as e:

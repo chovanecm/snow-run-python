@@ -689,6 +689,22 @@ class OutputFormatterRegistryTests(unittest.TestCase):
         for fmt in ("table", "tsv", "csv", "json", "xml", "excel"):
             self.assertIn(fmt, FORMAT_CHOICES)
 
+    def test_each_non_file_formatter_produces_output(self):
+        import io
+        from contextlib import redirect_stdout
+        from snow_cli.commands import _output_records
+        records = [{"name": {"value": "test", "display_value": "Test"}, "val": {"value": "42", "display_value": "42"}}]
+        fields = ["name", "val"]
+        for fmt in ("table", "tsv", "csv", "json", "xml"):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                _output_records(
+                    records, fields,
+                    no_header=False, display_values="both",
+                    fmt=fmt, output_file=None, table="test_table",
+                )
+            self.assertGreater(len(buf.getvalue()), 0, f"fmt={fmt} produced no output")
+
 
 if __name__ == "__main__":
     unittest.main()
