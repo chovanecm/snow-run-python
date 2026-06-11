@@ -2,7 +2,7 @@
 import sys
 import click
 from .config import Config
-from .commands import login, elevate, run_script, search_records, table_fields, count_records, aggregate_records
+from .commands import login, elevate, run_script, search_records, table_fields, count_records, aggregate_records, OutputFormat
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
 @click.group()
@@ -94,7 +94,7 @@ def r_alias():
 _FORMAT_OPTION = [
     click.option(
         "-F", "--format", "fmt",
-        type=click.Choice(["table", "tsv", "csv", "json", "xml", "excel"], case_sensitive=False),
+        type=click.Choice(list(OutputFormat), case_sensitive=False),
         default="table",
         show_default=True,
         help="Output format",
@@ -112,7 +112,7 @@ def _add_format_options(func):
 _AGGREGATE_FORMAT_OPTION = [
     click.option(
         "-F", "--format", "fmt",
-        type=click.Choice(["table", "tsv", "csv", "json"], case_sensitive=False),
+        type=click.Choice(OutputFormat.aggregate_choices(), case_sensitive=False),
         default="table",
         show_default=True,
         help="Output format",
