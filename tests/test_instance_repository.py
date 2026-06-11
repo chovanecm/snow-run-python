@@ -173,7 +173,8 @@ class LoadConfigTests(unittest.TestCase):
         (self.repo.snow_dir / "config.json").write_text(json.dumps(data))
 
     def test_returns_none_fields_when_nothing_configured(self):
-        config = self.repo.load_config()
+        with patch.dict(os.environ, {}, clear=True):
+            config = self.repo.load_config()
         self.assertIsNone(config.instance)
         self.assertIsNone(config.user)
         self.assertIsNone(config.password)
