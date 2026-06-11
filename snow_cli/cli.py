@@ -91,25 +91,6 @@ def r_alias():
     """Alias for record."""
 
 
-def _record_search_impl(config, table, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file):
-    sys.exit(
-        search_records(
-            config=config,
-            table=table,
-            query=query,
-            order_by=order_by,
-            order_by_desc=order_by_desc,
-            fields=fields,
-            limit=limit,
-            no_header=no_header,
-            sys_id=sys_id,
-            display_values=display_values,
-            fmt=fmt,
-            output_file=output_file,
-        )
-    )
-
-
 _FORMAT_OPTION = [
     click.option(
         "-F", "--format", "fmt",
@@ -126,104 +107,6 @@ def _add_format_options(func):
     for option in reversed(_FORMAT_OPTION):
         func = option(func)
     return func
-
-
-@record.command(name="search")
-@click.option("-q", "--query", "query", help="Encoded query (sysparm_query)")
-@click.option("-o", "--order-by", "order_by", multiple=True, help="Order by field (can be used multiple times)")
-@click.option("-od", "--order-by-desc", "order_by_desc", multiple=True, help="Order by field descending (can be used multiple times)")
-@click.option("-f", "--fields", help="Comma-separated list of fields to return")
-@click.option("-l", "--limit", type=int, help="Maximum number of records to return")
-@click.option("--no-header", is_flag=True, help="Omit column headers")
-@click.option("--sys-id", "sys_id", is_flag=True, help="Shortcut for -f sys_id --no-header")
-@click.option(
-    "--display-values",
-    type=click.Choice(["values", "display", "both"], case_sensitive=False),
-    default="both",
-    show_default=True,
-    help="Return field values, display values, or both",
-)
-@_add_format_options
-@click.argument("table_name")
-@click.pass_obj
-def record_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file, table_name):
-    """Perform a query on a table."""
-    _record_search_impl(
-        config,
-        table_name,
-        query,
-        list(order_by),
-        list(order_by_desc),
-        fields,
-        limit,
-        no_header,
-        sys_id,
-        display_values.lower(),
-        fmt.lower(),
-        output_file,
-    )
-
-
-@r_alias.command(name="search")
-@click.option("-q", "--query", "query", help="Encoded query (sysparm_query)")
-@click.option("-o", "--order-by", "order_by", multiple=True, help="Order by field (can be used multiple times)")
-@click.option("-od", "--order-by-desc", "order_by_desc", multiple=True, help="Order by field descending (can be used multiple times)")
-@click.option("-f", "--fields", help="Comma-separated list of fields to return")
-@click.option("-l", "--limit", type=int, help="Maximum number of records to return")
-@click.option("--no-header", is_flag=True, help="Omit column headers")
-@click.option("--sys-id", "sys_id", is_flag=True, help="Shortcut for -f sys_id --no-header")
-@click.option(
-    "--display-values",
-    type=click.Choice(["values", "display", "both"], case_sensitive=False),
-    default="both",
-    show_default=True,
-    help="Return field values, display values, or both",
-)
-@_add_format_options
-@click.argument("table_name")
-@click.pass_obj
-def r_search(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file, table_name):
-    """Perform a query on a table."""
-    _record_search_impl(
-        config,
-        table_name,
-        query,
-        list(order_by),
-        list(order_by_desc),
-        fields,
-        limit,
-        no_header,
-        sys_id,
-        display_values.lower(),
-        fmt.lower(),
-        output_file,
-    )
-
-
-@record.command(name="count")
-@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
-@click.argument("table_name")
-@click.pass_obj
-def record_count(config, query, table_name):
-    """Count records in a table, optionally filtered by a query.
-
-    Prints just the integer count.
-
-    Examples:
-      snow record count incident
-      snow record count -q "active=true" incident
-      snow record count -q "sys_created_on>=2024-01-01" incident
-    """
-    sys.exit(count_records(config, table_name, query=query))
-
-
-@r_alias.command(name="count")
-@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
-@click.argument("table_name")
-@click.pass_obj
-def r_count(config, query, table_name):
-    """Count records in a table, optionally filtered by a query."""
-    sys.exit(count_records(config, table_name, query=query))
 
 
 _AGGREGATE_FORMAT_OPTION = [
@@ -244,14 +127,97 @@ def _add_aggregate_format_options(func):
     return func
 
 
-def _record_aggregate_impl(
-    config, table, query, group_by, count, avg, sum_fields, min_fields, max_fields,
-    having, display_values, fmt, output_file
-):
+@click.command(name="search")
+@click.option("-q", "--query", "query", help="Encoded query (sysparm_query)")
+@click.option("-o", "--order-by", "order_by", multiple=True, help="Order by field (can be used multiple times)")
+@click.option("-od", "--order-by-desc", "order_by_desc", multiple=True, help="Order by field descending (can be used multiple times)")
+@click.option("-f", "--fields", help="Comma-separated list of fields to return")
+@click.option("-l", "--limit", type=int, help="Maximum number of records to return")
+@click.option("--no-header", is_flag=True, help="Omit column headers")
+@click.option("--sys-id", "sys_id", is_flag=True, help="Shortcut for -f sys_id --no-header")
+@click.option(
+    "--display-values",
+    type=click.Choice(["values", "display", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help="Return field values, display values, or both",
+)
+@_add_format_options
+@click.argument("table_name")
+@click.pass_obj
+def search_cmd(config, query, order_by, order_by_desc, fields, limit, no_header, sys_id, display_values, fmt, output_file, table_name):
+    """Perform a query on a table."""
+    sys.exit(
+        search_records(
+            config=config,
+            table=table_name,
+            query=query,
+            order_by=list(order_by),
+            order_by_desc=list(order_by_desc),
+            fields=fields,
+            limit=limit,
+            no_header=no_header,
+            sys_id=sys_id,
+            display_values=display_values.lower(),
+            fmt=fmt.lower(),
+            output_file=output_file,
+        )
+    )
+
+
+@click.command(name="count")
+@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
+@click.argument("table_name")
+@click.pass_obj
+def count_cmd(config, query, table_name):
+    """Count records in a table, optionally filtered by a query.
+
+    Prints just the integer count.
+
+    Examples:
+      snow record count incident
+      snow record count -q "active=true" incident
+      snow record count -q "sys_created_on>=2024-01-01" incident
+    """
+    sys.exit(count_records(config, table_name, query=query))
+
+
+@click.command(name="aggregate")
+@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
+@click.option("-g", "--group-by", "group_by", multiple=True, help="Field to group by (can be used multiple times)")
+@click.option("--count", "count", is_flag=True, help="Include COUNT in results")
+@click.option("--avg", "avg", multiple=True, metavar="FIELD", help="Include AVG of FIELD (can be used multiple times)")
+@click.option("--sum", "sum_fields", multiple=True, metavar="FIELD", help="Include SUM of FIELD (can be used multiple times)")
+@click.option("--min", "min_fields", multiple=True, metavar="FIELD", help="Include MIN of FIELD (can be used multiple times)")
+@click.option("--max", "max_fields", multiple=True, metavar="FIELD", help="Include MAX of FIELD (can be used multiple times)")
+@click.option("--having", "having", help="HAVING clause filter (sysparm_having, e.g. COUNT>10)")
+@click.option(
+    "--display-values",
+    type=click.Choice(["values", "display", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help="Return field values, display values, or both",
+)
+@_add_aggregate_format_options
+@click.argument("table_name")
+@click.pass_obj
+def aggregate_cmd(config, query, group_by, count, avg, sum_fields, min_fields, max_fields,
+                  having, display_values, fmt, output_file, table_name):
+    """Aggregate records in a table using the ServiceNow Aggregate API.
+
+    At least one of --count, --avg, --sum, --min, or --max must be provided.
+
+    Examples:
+      snow record aggregate --count incident
+      snow record aggregate --count -g priority incident
+      snow record aggregate --count -g category -q "active=true" incident
+      snow record aggregate --count --avg reassignment_count -g priority incident
+      snow r a --count -g state problem
+    """
     sys.exit(
         aggregate_records(
             config=config,
-            table=table,
+            table=table_name,
             query=query,
             group_by=list(group_by) if group_by else None,
             count=count,
@@ -267,74 +233,14 @@ def _record_aggregate_impl(
     )
 
 
-@record.command(name="aggregate")
-@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
-@click.option("-g", "--group-by", "group_by", multiple=True, help="Field to group by (can be used multiple times)")
-@click.option("--count", "count", is_flag=True, help="Include COUNT in results")
-@click.option("--avg", "avg", multiple=True, metavar="FIELD", help="Include AVG of FIELD (can be used multiple times)")
-@click.option("--sum", "sum_fields", multiple=True, metavar="FIELD", help="Include SUM of FIELD (can be used multiple times)")
-@click.option("--min", "min_fields", multiple=True, metavar="FIELD", help="Include MIN of FIELD (can be used multiple times)")
-@click.option("--max", "max_fields", multiple=True, metavar="FIELD", help="Include MAX of FIELD (can be used multiple times)")
-@click.option("--having", "having", help="HAVING clause filter (sysparm_having, e.g. COUNT>10)")
-@click.option(
-    "--display-values",
-    type=click.Choice(["values", "display", "both"], case_sensitive=False),
-    default="both",
-    show_default=True,
-    help="Return field values, display values, or both",
-)
-@_add_aggregate_format_options
-@click.argument("table_name")
-@click.pass_obj
-def record_aggregate(config, query, group_by, count, avg, sum_fields, min_fields, max_fields,
-                     having, display_values, fmt, output_file, table_name):
-    """Aggregate records in a table using the ServiceNow Aggregate API.
+record.add_command(search_cmd)
+record.add_command(count_cmd)
+record.add_command(aggregate_cmd)
 
-    At least one of --count, --avg, --sum, --min, or --max must be provided.
-
-    Examples:
-      snow record aggregate --count incident
-      snow record aggregate --count -g priority incident
-      snow record aggregate --count -g category -q "active=true" incident
-      snow record aggregate --count --avg reassignment_count -g priority incident
-      snow r a --count -g state problem
-    """
-    _record_aggregate_impl(
-        config, table_name, query, group_by, count, avg, sum_fields, min_fields, max_fields,
-        having, display_values, fmt, output_file,
-    )
-
-
-@r_alias.command(name="a")
-@click.option("-q", "--query", "query", help="Encoded query to filter records (sysparm_query)")
-@click.option("-g", "--group-by", "group_by", multiple=True, help="Field to group by (can be used multiple times)")
-@click.option("--count", "count", is_flag=True, help="Include COUNT in results")
-@click.option("--avg", "avg", multiple=True, metavar="FIELD", help="Include AVG of FIELD (can be used multiple times)")
-@click.option("--sum", "sum_fields", multiple=True, metavar="FIELD", help="Include SUM of FIELD (can be used multiple times)")
-@click.option("--min", "min_fields", multiple=True, metavar="FIELD", help="Include MIN of FIELD (can be used multiple times)")
-@click.option("--max", "max_fields", multiple=True, metavar="FIELD", help="Include MAX of FIELD (can be used multiple times)")
-@click.option("--having", "having", help="HAVING clause filter (sysparm_having, e.g. COUNT>10)")
-@click.option(
-    "--display-values",
-    type=click.Choice(["values", "display", "both"], case_sensitive=False),
-    default="both",
-    show_default=True,
-    help="Return field values, display values, or both",
-)
-@_add_aggregate_format_options
-@click.argument("table_name")
-@click.pass_obj
-def r_aggregate(config, query, group_by, count, avg, sum_fields, min_fields, max_fields,
-                having, display_values, fmt, output_file, table_name):
-    """Aggregate records in a table (alias for 'record aggregate')."""
-    _record_aggregate_impl(
-        config, table_name, query, group_by, count, avg, sum_fields, min_fields, max_fields,
-        having, display_values, fmt, output_file,
-    )
-
-
-# Also expose as 'snow r aggregate' (long form of the alias)
-r_alias.add_command(r_aggregate, name="aggregate")
+r_alias.add_command(search_cmd)
+r_alias.add_command(count_cmd)
+r_alias.add_command(aggregate_cmd)
+r_alias.add_command(aggregate_cmd, name="a")
 
 
 

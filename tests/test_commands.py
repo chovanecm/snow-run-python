@@ -43,6 +43,43 @@ class DummyConfig:
         return self.tmp_dir / "cookies.txt"
 
 
+class CliAliasParity(unittest.TestCase):
+    """Verify that record/r aliases are functionally identical."""
+
+    def test_r_search_forwards_all_options(self):
+        runner = CliRunner()
+        fake_search = Mock(return_value=0)
+        with patch.dict(sys.modules, {"keyring": keyring_stub}), \
+             patch("snow_cli.cli.search_records", fake_search), \
+             patch.object(cli_module.sys, "exit", side_effect=SystemExit):
+            result = runner.invoke(
+                cli_module.main,
+                ["r", "search", "-q", "active=true", "-f", "sys_id,number",
+                 "-l", "5", "incident"],
+            )
+        self.assertEqual(result.exit_code, 0)
+        kw = fake_search.call_args.kwargs
+        self.assertEqual(kw["query"], "active=true")
+        self.assertEqual(kw["fields"], "sys_id,number")
+        self.assertEqual(kw["limit"], 5)
+        self.assertEqual(kw["table"], "incident")
+
+    def test_r_count_forwards_query(self):
+        runner = CliRunner()
+        fake_count = Mock(return_value=0)
+        with patch.dict(sys.modules, {"keyring": keyring_stub}), \
+             patch("snow_cli.cli.count_records", fake_count), \
+             patch.object(cli_module.sys, "exit", side_effect=SystemExit):
+            result = runner.invoke(
+                cli_module.main,
+                ["r", "count", "-q", "active=true", "incident"],
+            )
+        self.assertEqual(result.exit_code, 0)
+        # count_records is called as: count_records(config, table, query=query)
+        self.assertEqual(fake_count.call_args.args[1], "incident")
+        self.assertEqual(fake_count.call_args.kwargs.get("query"), "active=true")
+
+
 class ParseOutputLinesTests(unittest.TestCase):
     def test_marker_bounded_stdout_routes_outer_noise_to_stderr(self):
         start_marker = "__SNOW_RUN_START_token__"
