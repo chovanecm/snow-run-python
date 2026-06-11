@@ -9,7 +9,7 @@ import re
 import secrets
 import sys
 from datetime import datetime
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -266,6 +266,13 @@ def _find_marker_indexes(stdout_lines: Sequence[str], start_marker: Optional[str
     return start_index, end_index
 
 
+class _ParseState(Enum):
+    PASSTHROUGH  = auto()
+    BEFORE_START = auto()
+    IN_SCRIPT    = auto()
+    AFTER_END    = auto()
+
+
 def _parse_output_lines(
     html_response: str,
     start_marker: Optional[str] = None,
@@ -275,9 +282,10 @@ def _parse_output_lines(
     stdout_lines = [text for channel, text in events if channel == "stdout"]
     start_index, end_index = _find_marker_indexes(stdout_lines, start_marker, end_marker)
 
+    state = _ParseState.PASSTHROUGH if start_index is None else _ParseState.BEFORE_START
+    stdout_position = -1
     filtered_stdout: List[str] = []
     filtered_stderr: List[str] = []
-    stdout_position = -1
 
     for channel, text in events:
         if channel != "stdout":
@@ -286,29 +294,23 @@ def _parse_output_lines(
 
         stdout_position += 1
 
-        if start_index is None:
+        if state == _ParseState.PASSTHROUGH:
             filtered_stdout.append(text)
-            continue
 
-        if stdout_position < start_index:
+        elif state == _ParseState.BEFORE_START:
+            if stdout_position == start_index:
+                state = _ParseState.IN_SCRIPT if end_index is not None else _ParseState.PASSTHROUGH
+            else:
+                filtered_stderr.append(text)
+
+        elif state == _ParseState.IN_SCRIPT:
+            if stdout_position == end_index:
+                state = _ParseState.AFTER_END
+            else:
+                filtered_stdout.append(text)
+
+        elif state == _ParseState.AFTER_END:
             filtered_stderr.append(text)
-            continue
-
-        if stdout_position == start_index:
-            continue
-
-        if end_index is None:
-            filtered_stdout.append(text)
-            continue
-
-        if stdout_position < end_index:
-            filtered_stdout.append(text)
-            continue
-
-        if stdout_position == end_index:
-            continue
-
-        filtered_stderr.append(text)
 
     if start_marker and end_marker:
         if start_index is None and end_marker in stdout_lines:
