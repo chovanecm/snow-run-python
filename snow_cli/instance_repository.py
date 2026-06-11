@@ -31,7 +31,7 @@ class InstanceRepository:
         if "instances" not in data:
             data["instances"] = {}
         keyring_success = self._set_password_in_keyring(instance, user, password)
-        data["instances"][instance] = {"user": user, "keyring": keyring_success}
+        data["instances"][instance] = {"user": user, "keyring": keyring_success}  # full replacement clears stale "password" key
         if not keyring_success:
             data["instances"][instance]["password"] = password
         if set_default or "default_instance" not in data:
@@ -72,7 +72,7 @@ class InstanceRepository:
         if not self.config_file.exists():
             return {}
         try:
-            with open(self.config_file, "r") as f:
+            with open(self.config_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except json.JSONDecodeError as e:
             print(f"Warning: config file is corrupted and will be ignored ({e})", file=sys.stderr)
@@ -80,6 +80,7 @@ class InstanceRepository:
 
     def _save_json(self, data: dict):
         self.snow_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.snow_dir, 0o700)
         fd = os.open(str(self.config_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps(data, indent=2))
