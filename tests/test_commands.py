@@ -18,6 +18,29 @@ sys.modules.setdefault(
     keyring_stub,
 )
 
+# Stub mcp so mcp_server can be imported in environments without the mcp package
+class _FakeFastMCP:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def tool(self, *args, **kwargs):
+        """No-op decorator used at module level in mcp_server.py."""
+        def decorator(fn):
+            return fn
+        return decorator
+
+    def run(self):
+        pass
+
+_mcp_module = types.ModuleType("mcp")
+_mcp_server_module = types.ModuleType("mcp.server")
+_mcp_fastmcp_module = types.SimpleNamespace(FastMCP=_FakeFastMCP)
+_mcp_types_module = types.SimpleNamespace(ToolAnnotations=Mock)
+sys.modules.setdefault("mcp", _mcp_module)
+sys.modules.setdefault("mcp.server", _mcp_server_module)
+sys.modules.setdefault("mcp.server.fastmcp", _mcp_fastmcp_module)
+sys.modules.setdefault("mcp.types", _mcp_types_module)
+
 from click.testing import CliRunner
 
 from snow_cli import cli as cli_module
