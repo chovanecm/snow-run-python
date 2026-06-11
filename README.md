@@ -1,121 +1,230 @@
-# ServiceNow Python CLI
+# snow-cli
 
-Run ServiceNow Background Scripts from your terminal — fast, reliable, and cross‑platform. The CLI also handles login, elevation, multi‑instance management, and secure credential storage with persistent sessions.
+![Python](https://img.shields.io/badge/python-3.8%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 
-This tool ships as both a **CLI** and an **MCP (Model Context Protocol) server**, so you can use it directly from the terminal or integrate it with AI assistants like GitHub Copilot and Claude.
+A cross-platform CLI and MCP server for ServiceNow — run background scripts, query tables, inspect schemas, and connect AI assistants to your instances.
 
-## At a Glance
+---
 
-- Run Background Scripts from file or stdin, with parsed output isolated from ServiceNow wrapper noise
-- Login and persist sessions (cookies saved per instance)
-- Elevate to `security_admin` when needed
-- Manage multiple instances: add, list, use (set default), remove, info
-- Secure credentials via OS keyring (fallback to config file)
-- Works on macOS, Linux, and Windows — no GNU/Bash dependencies
+## Connect AI Assistants to ServiceNow
+
+Add `snow mcp` to Claude Desktop, GitHub Copilot, or any MCP-compatible AI assistant, and your AI gets native access to your ServiceNow instance.
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "snow",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Once connected, you can ask your AI assistant things like:
+
+- *"How many P1 incidents are open right now?"* → calls `snow_record_count`
+- *"Show me all incidents assigned to the network team grouped by priority"* → calls `snow_record_aggregate`
+- *"What fields does the `cmdb_ci_server` table have?"* → calls `snow_table_fields`
+- *"Run this script on my dev instance"* → calls `snow_run_script` (prompts for confirmation)
+
+Destructive tools (`snow_run_script`, `snow_elevate`, `snow_login`) are annotated for human confirmation in MCP clients. All calls are logged to `~/.snow-run/audit.log`. See [SECURITY.md](SECURITY.md) for the full threat model.
+
+---
+
+## Terminal Scripting & Querying
+
+Run background scripts from file or stdin, query any table, and inspect schemas — from your terminal on macOS, Linux, and Windows.
+
+**Run a background script:**
+
+```
+$ echo "gs.info('Hello from ' + gs.getUserName());" | snow run
+Hello from admin
+```
+
+```
+$ cat fix_stale_records.js | snow run --auto-login
+Records updated: 42
+```
+
+**Query tables:**
+
+```
+$ snow record search -q "active=true^priority=1" -f number,short_description -l 5 incident
+number    short_description
+--------  -----------------------------------------
+INC00042  VPN connectivity failure
+INC00051  Email service degraded
+INC00078  Database backup failing on primary node
+INC00091  Load balancer health check timeout
+INC00103  API gateway returning 502 errors
+```
+
+**Aggregate data:**
+
+```
+$ snow record aggregate --count -g priority incident
+priority    count
+----------  -------
+1 - Critical        12
+2 - High           47
+3 - Moderate      213
+4 - Low           891
+```
+
+**Inspect table schemas:**
+
+```
+$ snow table fields incident
+field              label                    type             references
+-----------------  -----------------------  ---------------  ----------------
+assigned_to        Assignee                 reference        sys_user
+category           Category                 string
+caused_by          Caused by Change         reference        change_request
+location           Location                 reference        cmn_location
+priority           Priority                 integer
+state              State                    integer
+sys_updated_on     Updated                  glide_date_time
+```
+
+---
+
+## Use Cases
+
+### ServiceNow developer: automate script execution
+
+Run scripts as part of your development workflow, with clean stdout separated from ServiceNow wrapper noise.
+
+```
+$ snow run --auto-login scripts/update_assignments.js
+Updated 17 records.
+$ echo $?
+0
+```
+
+Auto-login retries once with `login` + `elevate` when the session has expired — no manual intervention needed in CI or scheduled jobs.
+
+### Admin / platform engineer: export and document schemas
+
+Dump table schemas for documentation, change review, or data mapping.
+
+```
+$ snow table fields cmdb_ci_server -F excel -O cmdb_ci_server_fields.xlsx
+$ snow table fields task -F csv -O task_fields.csv
+$ snow record search -q "active=true" -F json -O open_incidents.json incident
+```
+
+Count records to validate data quality checks:
+
+```
+$ snow record count -q "active=true^assigned_toISEMPTY" incident
+134
+```
+
+### AI / LLM user: connect Claude or Copilot to your instance
+
+After adding the MCP server config, your AI assistant can query, aggregate, and inspect ServiceNow data directly. No scripting required — just ask.
+
+**Claude Desktop config** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "servicenow": {
+      "command": "snow",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**MCP tools exposed:**
+
+| Tool | Description |
+|---|---|
+| `snow_run_script` | Execute a JavaScript background script |
+| `snow_login` | Log in and persist the session cookie |
+| `snow_elevate` | Elevate to the `security_admin` role |
+| `snow_list_instances` | List configured instances |
+| `snow_record_count` | Count records matching an optional query |
+| `snow_table_fields` | List all fields (including inherited) for a table |
+| `snow_record_search` | Query table records with filtering, sorting, projection |
+| `snow_record_aggregate` | Aggregate records (count/avg/sum/min/max with group-by) |
+
+All tools accept an optional `instance` argument; omit it to use the default.
+
+> **Context window tip:** `snow_record_search` and `snow_table_fields` return data inline by default. Specify `limit` for record searches. For large tables, pass `output_file` to save to disk — the tool returns `{"saved_to": "...", "count": N}` instead of the full payload.
+
+### Multi-instance: manage dev, test, and prod
+
+```
+$ snow add --default dev1234.service-now.com
+$ snow add test5678.service-now.com
+
+$ snow list
+* dev1234.service-now.com (default)
+  test5678.service-now.com
+
+$ snow use test5678.service-now.com
+$ snow -i dev1234.service-now.com run script.js   # one-off override
+```
+
+---
 
 ## Quickstart
 
+> ⚠️ Do not run this against a production instance.
+
+**Install with uv (recommended):**
+
 ```bash
-# Install locally
-pip install -e .
-
-# Add your instance and set it as default (interactive for credentials)
-snow add --default dev1234.service-now.com
-
-# Login and create a session
-snow login
-
-# Run a background script (core feature)
-echo "gs.print('Hello');" | snow run
-# or from file
-snow run example.js
-# retry once with automatic login + elevate if the script token cannot be obtained
-snow run --auto-login example.js
-
-# Elevate if your task requires security_admin
-snow elevate
+uv tool install git+https://github.com/chovanecm/snow-cli@main
 ```
 
-## Warning
+**Add your instance and run:**
 
-It would, in the most measured opinion of those entrusted with the uninterrupted prosecution of business-as-usual, be singularly ill-advised to employ this instrument upon any environment denominated as “production”, the consequences of which—while perfectly predictable—would be lamentably time‑consuming to elucidate and even more so to remediate. (Plainly: do not run this on production.)
+```bash
+snow add --default dev1234.service-now.com
+snow login
+echo "gs.print('Hello');" | snow run
+```
 
+<details>
+<summary>Other install methods</summary>
 
+**Try without installing (uv):**
+```bash
+uvx --from git+https://github.com/chovanecm/snow-cli@main snow --help
+```
 
-## Next Generation
+**Install via pipx:**
+```bash
+pipx install git+https://github.com/chovanecm/snow-cli@main
+# upgrade later
+pipx upgrade --spec git+https://github.com/chovanecm/snow-cli@main snow
+```
 
-This project is the next-generation rewrite of `snow-run`:
+**Install via pip:**
+```bash
+python3 -m pip install --user git+https://github.com/chovanecm/snow-cli@main
+```
 
-- Repository (this project): https://github.com/chovanecm/snow-run-python
-- Original Bash version: https://github.com/chovanecm/snow-run
-- The original was Bash-based and ran into cross-platform compatibility issues across systems (e.g., GNU vs. BSD tools, Windows shells).
-- This Python implementation focuses on consistent behavior across macOS, Linux, and Windows, with easier maintenance and clearer debugging.
+**Pin to a specific tag or commit:**
+```bash
+pipx install "git+https://github.com/chovanecm/snow-cli@<tag_or_commit>"
+```
 
-## Features
+**Development install:**
+```bash
+git clone https://github.com/chovanecm/snow-cli.git
+cd snow-cli
+pip install -e .
+```
 
-- **Background Scripts (core)**: Run from file or stdin, keep canonical script stdout separate from ServiceNow-added noise, raw HTML saved for troubleshooting
-- **Login + elevation**: Authenticate and elevate to `security_admin` when required
-- **Persistent sessions**: Cookies stored per instance for reuse
-- **Multi-instance management**: add/list/use/remove, with a default instance
-- **Secure credentials**: OS keyring when available, config fallback
-- **Cross-platform**: macOS, Linux, Windows; no GNU/Bash dependencies
-- **Better debugging**: Clear errors; verbose mode planned
+</details>
 
-## Installation
-
-Choose one of the following:
-
-- Install via uv (recommended)
-
-  ```bash
-  uv tool install git+https://github.com/chovanecm/snow-run-python@main
-  # upgrade later
-  uv tool upgrade snow
-  ```
-
-- Try without installing (uv)
-
-  ```bash
-  uvx --from git+https://github.com/chovanecm/snow-run-python@main snow --help
-  ```
-
-- Install via pipx
-
-  ```bash
-  pipx install git+https://github.com/chovanecm/snow-run-python@main
-  # upgrade later
-  pipx upgrade --spec git+https://github.com/chovanecm/snow-run-python@main snow
-  ```
-
-- Install via pip (user install)
-
-  ```bash
-  python3 -m pip install --user git+https://github.com/chovanecm/snow-run-python@main
-  ```
-
-- Pin to a tag or commit
-
-  ```bash
-  pipx install "git+https://github.com/chovanecm/snow-run-python@<tag_or_commit>"
-  ```
-
-- Try without installing (pipx)
-
-  ```bash
-  pipx run --spec git+https://github.com/chovanecm/snow-run-python@main snow --help
-  ```
-
-- Development install from a local clone
-
-  ```bash
-  git clone https://github.com/chovanecm/snow-run-python.git
-  cd snow-run-python
-  pip install -e .
-  ```
-
-## Configuration
-
-Use `snow add` to store credentials securely (OS keyring when available) and set a default instance. You can always override with `--instance` for one-off commands. Configuration is stored in `~/.snow-run/config.json` with file permissions set to 600 (owner read/write only). Passwords are stored in the OS keyring when available; otherwise they fall back to the config file.
+---
 
 ## Commands
 
@@ -129,52 +238,132 @@ Use `snow add` to store credentials securely (OS keyring when available) and set
 - `snow run [--auto-login] [SCRIPT_FILE|-]` — Run a Background Script (file or stdin)
 - `snow record search [options] TABLE_NAME` — Query table records
 - `snow record count [-q QUERY] TABLE_NAME` — Count matching records
-- `snow record aggregate [options] TABLE_NAME` — Aggregate records (count/avg/sum/min/max with optional group-by)
-- `snow r search [options] TABLE_NAME` — Alias for `snow record search`
-- `snow r count [-q QUERY] TABLE_NAME` — Alias for `snow record count`
-- `snow r a [options] TABLE_NAME` — Alias for `snow record aggregate`
-- `snow r aggregate [options] TABLE_NAME` — Alias for `snow record aggregate`
-- `snow table fields [options] TABLE_NAME` — List all fields (including inherited) with labels and types
+- `snow record aggregate [options] TABLE_NAME` — Aggregate records
+- `snow r search / snow r count / snow r a` — Short aliases for record commands
+- `snow table fields [options] TABLE_NAME` — List all fields with labels and types
 - `snow mcp` — Start the MCP server (stdio) for AI assistant integration
 
-## MCP Server Mode
+---
 
-`snow mcp` starts an [MCP](https://modelcontextprotocol.io/) server over stdio, letting AI assistants (e.g. Claude Desktop) call ServiceNow operations as tools.
+## Record Queries
 
-**Exposed tools:**
+### Counting records
 
-| Tool | Description |
-|---|---|
-| `snow_run_script` | Execute a JavaScript background script on a ServiceNow instance |
-| `snow_login` | Log in and persist the session cookie |
-| `snow_elevate` | Elevate to the `security_admin` role |
-| `snow_list_instances` | List configured ServiceNow instances |
-| `snow_record_count` | Count records matching an optional query. Returns `{"count": N}`. Lightweight — no context concern. |
-| `snow_table_fields` | List all fields (including inherited) for a table. Returns `{field, label, type, references}` per field. Use `output_file` for large tables. |
-| `snow_record_search` | Query table records with filtering, sorting, projection, limits, and display-value mode. Use `output_file` to save large results to disk and return only metadata. |
-| `snow_record_aggregate` | Aggregate records using the Aggregate API (count/avg/sum/min/max with optional group-by and HAVING). Returns JSON array of result rows. |
+```bash
+snow record count incident
+snow record count -q "active=true" incident
+snow r count -q "sys_created_on>=2024-01-01" incident
+```
 
-All tools accept an optional `instance` argument; omit it to use the default configured instance.
+Prints just the integer count — no headers, no formatting.
 
-> **Context window tip:** `snow_record_search` and `snow_table_fields` return data inline by default. Always specify `limit` for record searches. For large tables or result sets, pass `output_file` to save to disk — the tool returns only `{"saved_to": "...", "count": N}` instead of the full payload.
+### Aggregating records
 
-> **Security:** Destructive tools (`snow_run_script`, `snow_elevate`, `snow_login`) are annotated so MCP clients will prompt for human confirmation before executing. All MCP calls are logged to `~/.snow-run/audit.log`. See [SECURITY.md](SECURITY.md) for the full MCP threat model and safeguards.
+Use `snow record aggregate` (or alias `snow r a`) to run aggregate queries via the [ServiceNow Aggregate API](https://docs.servicenow.com/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_AggregateAPI.html).
+
+At least one aggregate function must be specified.
+
+```bash
+# Count all incidents
+snow record aggregate --count incident
+
+# Count grouped by priority
+snow record aggregate --count -g priority incident
+
+# Count + average reassignment_count grouped by state, filtered to active
+snow record aggregate --count --avg reassignment_count -g state -q "active=true" incident
+
+# Only groups with more than 5 records
+snow r a --count -g category --having "COUNT>5" incident
+
+# Multiple functions in JSON
+snow r a --count --min opened_at --max closed_at -g priority -F json incident
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--count` | Include COUNT in results |
+| `--avg FIELD` | Include AVG of field (repeatable) |
+| `--sum FIELD` | Include SUM of field (repeatable) |
+| `--min FIELD` | Include MIN of field (repeatable) |
+| `--max FIELD` | Include MAX of field (repeatable) |
+| `-g, --group-by FIELD` | Group results by field (repeatable) |
+| `-q, --query TEXT` | Encoded query filter (sysparm_query) |
+| `--having TEXT` | HAVING clause (e.g. `COUNT>10`) |
+| `--display-values` | `values`/`display`/`both` (default `both`) |
+| `-F, --format` | `table` *(default)*, `tsv`, `csv`, `json` |
+| `-O, --output FILE` | Write output to file |
+
+### Searching records
+
+Use `snow record search` (or alias `snow r search`) to query ServiceNow tables.
+
+```bash
+# Default output is a pretty table
+snow record search incident
+
+# Filter + projection + limit
+snow record search -q "active=true^priority=1" -f number,short_description,state -l 10 incident
+
+# Sorting
+snow record search -o number -od sys_created_on incident
+
+# sys_id only
+snow record search --sys-id incident
+
+# Display mode: values|display|both (default both)
+snow record search --display-values both -f caller_id,assignment_group incident
+```
+
+### Output formats
+
+| Format  | Description                                           |
+|---------|-------------------------------------------------------|
+| `table` | *(default)* Pretty-printed aligned table              |
+| `tsv`   | Tab-separated values                                  |
+| `csv`   | Comma-separated values                                |
+| `json`  | JSON array (full `value`/`display_value` objects)     |
+| `xml`   | ServiceNow XML unload format (`<unload>…</unload>`)   |
+| `excel` | Excel `.xlsx` — requires `-O/--output FILE`           |
+
+```bash
+snow record search -l 20 -f number,state -F csv incident
+snow record search -l 100 -f number,short_description -F json -O incidents.json incident
+snow record search -q "active=true" -F excel -O open_incidents.xlsx incident
+```
+
+### All search options
+
+- `-q, --query ENCODED_QUERY`
+- `-o, --order-by FIELD` (repeatable)
+- `-od, --order-by-desc FIELD` (repeatable)
+- `-f, --fields FIELDS` (comma-separated)
+- `-l, --limit N`
+- `-F, --format [table|tsv|csv|json|xml|excel]` (default: `table`)
+- `-O, --output FILE`
+- `--no-header`
+- `--sys-id` (shortcut for `-f sys_id --no-header`)
+- `--display-values [values|display|both]` (default: `both`)
+
+---
 
 ## Table Schema
 
-Use `snow table fields TABLE_NAME` to inspect all columns on a table, including those inherited from parent tables.
+Inspect all columns on a table, including those inherited from parent tables.
 
 ```bash
-# List all fields (pretty table by default)
+# Pretty table (default)
 snow table fields incident
 
-# JSON output (includes references as a separate key)
+# JSON (includes reference targets)
 snow table fields incident -F json
 
-# Export to CSV for documentation
+# CSV for documentation
 snow table fields cmdb_ci -F csv -O cmdb_ci_fields.csv
 
-# Export to Excel
+# Excel
 snow table fields task -F excel -O task_fields.xlsx
 ```
 
@@ -192,265 +381,62 @@ sys_updated_on     Updated                  glide_date_time
 watch_list         Watch list               glide_list
 ```
 
-Fields are sorted alphabetically. The `references` column is populated for `reference` and `glide_list` fields that point to another table.
+**Options:** `-F [table|tsv|csv|json|xml|excel]`, `-O FILE`
 
-### Options
+---
 
-- `-F, --format [table|tsv|csv|json|xml|excel]` (default: `table`)
-- `-O, --output FILE` (write to file; required for excel)
+## Configuration
 
-## Record Queries
-
-### Counting records
+Use `snow add` to store credentials securely (OS keyring when available) and set a default instance. Override with `--instance` for one-off commands. Config stored in `~/.snow-run/config.json` (permissions: 600). Passwords go to the OS keyring when available, config file otherwise.
 
 ```bash
-# Count all records
-snow record count incident
-
-# Count with filter
-snow record count -q "active=true" incident
-snow r count -q "sys_created_on>=2024-01-01" incident
-```
-
-Prints just the integer count — no headers, no formatting.
-
-### Aggregating records
-
-Use `snow record aggregate` (or alias `snow r a`) to run aggregate queries via the [ServiceNow Aggregate API](https://docs.servicenow.com/bundle/zurich-api-reference/page/integrate/inbound-rest/concept/c_AggregateAPI.html).
-
-At least one aggregate function must be specified.
-
-```bash
-# Count all incidents
-snow record aggregate --count incident
-
-# Count incidents grouped by priority
-snow record aggregate --count -g priority incident
-
-# Count + average reassignment_count grouped by state, filtered to active only
-snow record aggregate --count --avg reassignment_count -g state -q "active=true" incident
-
-# Count per category, only groups with more than 5 records
-snow r a --count -g category --having "COUNT>5" incident
-
-# Multiple aggregate functions in JSON format
-snow r a --count --min opened_at --max closed_at -g priority -F json incident
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--count` | Include COUNT in results |
-| `--avg FIELD` | Include AVG of field (repeatable) |
-| `--sum FIELD` | Include SUM of field (repeatable) |
-| `--min FIELD` | Include MIN of field (repeatable) |
-| `--max FIELD` | Include MAX of field (repeatable) |
-| `-g, --group-by FIELD` | Group results by field (repeatable) |
-| `-q, --query TEXT` | Encoded query filter (sysparm_query) |
-| `--having TEXT` | HAVING clause filter (e.g. `COUNT>10`) |
-| `--display-values` | `values`/`display`/`both` (default `both`) |
-| `-F, --format` | `table` *(default)*, `tsv`, `csv`, `json` |
-| `-O, --output FILE` | Write output to file |
-
-
-
-Use `snow record search` (or alias `snow r search`) to query ServiceNow tables.
-
-```bash
-# Basic query — default output is a pretty table
-snow record search incident
-
-# Filter + projection + limit
-snow record search -q "active=true^priority=1" -f number,short_description,state -l 10 incident
-
-# Sorting (multi)
-snow record search -o number -od sys_created_on incident
-
-# sys_id only
-snow record search --sys-id incident
-
-# Display mode: values|display|both (default both)
-snow record search --display-values both -f caller_id,assignment_group incident
-```
-
-### Output formats
-
-Use `-F / --format` to choose the output format:
-
-| Format  | Description                                           |
-|---------|-------------------------------------------------------|
-| `table` | *(default)* Pretty-printed aligned table              |
-| `tsv`   | Tab-separated values                                  |
-| `csv`   | Comma-separated values                                |
-| `json`  | JSON array (full `value`/`display_value` objects)     |
-| `xml`   | ServiceNow XML unload format (`<unload>…</unload>`)   |
-| `excel` | Excel `.xlsx` — requires `-O/--output FILE`           |
-
-Use `-O / --output FILE` to write to a file instead of stdout (required for `excel`):
-
-```bash
-# CSV to stdout
-snow record search -l 20 -f number,state -F csv incident
-
-# JSON to file
-snow record search -l 100 -f number,short_description -F json -O incidents.json incident
-
-# Excel export
-snow record search -q "active=true" -F excel -O open_incidents.xlsx incident
-
-# ServiceNow XML unload
-snow record search -l 10 -F xml incident
-```
-
-The XML format follows the ServiceNow XML export convention:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<unload unload_date="2026-02-24 12:00:00">
-  <incident action="INSERT_OR_UPDATE">
-    <number>INC1234</number>
-    <state display_value="Open">1</state>
-  </incident>
-</unload>
-```
-Reference fields (where display value differs from raw value) carry a `display_value` attribute.
-
-### All options
-
-- `-q, --query ENCODED_QUERY`
-- `-o, --order-by FIELD` (repeatable)
-- `-od, --order-by-desc FIELD` (repeatable)
-- `-f, --fields FIELDS` (comma-separated)
-- `-l, --limit N`
-- `-F, --format [table|tsv|csv|json|xml|excel]` (default: `table`)
-- `-O, --output FILE` (write to file; required for excel)
-- `--no-header`
-- `--sys-id` (shortcut for `-f sys_id --no-header`)
-- `--display-values [values|display|both]` (default: `both`)
-
-**Claude Desktop setup** — add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "servicenow": {
-      "command": "snow",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-The config file is typically at:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-## Managing Multiple Instances
-
-```bash
-# Interactive prompt
-snow add
-
-# Specify instance directly
 snow add dev1234.service-now.com
-
-# Set as default
 snow add --default dev5678.service-now.com
-
-# List configured instances
 snow list
-
-# Switch default instance
 snow use dev5678.service-now.com
-
-# Remove an instance
 snow remove dev1234.service-now.com
-
-# Show info
 snow info
 ```
 
-## Working with Instances
-
-```bash
-# Login to default instance
-snow login
-
-# Login to specific instance (one-off)
-snow --instance dev5678.service-now.com login
-# or
-snow -i dev5678.service-now.com login
-
-# Run scripts
-snow run script.js
-snow run --auto-login script.js
-echo "gs.print('Hello');" | snow run
-
-# Run on a specific instance
-snow -i dev5678.service-now.com run script.js
-
-# Elevate privileges
-snow elevate
-snow -i dev5678.service-now.com elevate
-```
-
-## Troubleshooting & Debugging
-
-- Last raw output (HTML) after running scripts: `~/.snow-run/tmp/{instance}/last_run_output.txt`
-- `snow run` now wraps each script with generated boundary markers so extra ServiceNow text before or after your real output stays on stderr diagnostics instead of polluting stdout.
-- `snow run --auto-login` retries once with `login` + `elevate` if the initial failure is specifically “Cannot get security token ...”; all auto-auth progress stays on stderr.
-- Verbose HTTP logging (`--debug`) is planned.
-- On errors, the CLI prints clear messages and relevant HTTP status codes.
-
-## Advanced
-
-Environment variables (legacy override; prefer `snow add`):
+**Environment variables (legacy override; prefer `snow add`):**
 
 ```bash
 export snow_instance=dev1234.service-now.com
 export snow_user=admin
 export snow_pwd=your-password
-
-# Example using env vars
-snow login
 ```
 
-## Advantages over Bash version
+---
 
-1. **Platform-independent**: No GNU grep/sed dependencies
-2. **Better error handling**: Python exceptions vs shell error codes
-3. **Easier to debug**: Can add logging, breakpoints, unit tests
-4. **Type hints**: Better IDE support and code documentation
-5. **Extensible**: Easy to add new commands and features
+## Working with Instances
+
+```bash
+snow login                                          # default instance
+snow -i dev5678.service-now.com login               # specific instance
+
+snow run script.js
+snow run --auto-login script.js
+echo "gs.print('Hello');" | snow run
+
+snow -i dev5678.service-now.com run script.js
+snow elevate
+snow -i dev5678.service-now.com elevate
+```
+
+---
+
+## Troubleshooting & Debugging
+
+- Last raw HTML output after running scripts: `~/.snow-run/tmp/{instance}/last_run_output.txt`
+- `snow run` wraps each script with generated boundary markers so ServiceNow wrapper text stays on stderr instead of polluting stdout
+- `snow run --auto-login` retries once with `login` + `elevate` when the failure is "Cannot get security token..."; auto-auth progress is on stderr
+- On errors, the CLI prints clear messages and relevant HTTP status codes
+
+---
 
 ## Development
 
 ```bash
-# Install in development mode
 pip install -e .
-
-# Run tests
 PYTHONPATH=. python3 -m unittest discover -s tests -q
-
-# Add logging for debugging
-import logging
-logging.basicConfig(level=logging.DEBUG)
 ```
-
-## Migration from Bash
-
-The Python version is designed as a drop-in replacement:
-
-- Same command names: `snow login`, `snow elevate`, `snow run`
-- Same environment variables: `snow_instance`, `snow_user`, `snow_pwd`
-- Same cookie storage location: `~/.snow-run/tmp/{instance}/cookies.txt`
-- Compatible with existing scripts
-
-## TODO
-
-- [ ] Add remaining commands (eval, inspect, table, record, etc.)
-- [ ] Add `--debug` flag for verbose HTTP logging
-- [ ] Add unit tests
-- [ ] Improve output parsing for edge cases
-- [ ] Add retry logic for network errors
-- [ ] Support for custom SSL certificates
