@@ -46,7 +46,7 @@ from click.testing import CliRunner
 from snow_cli import cli as cli_module
 from snow_cli.commands import _parse_and_display_output, _parse_output_lines, _wrap_script_with_output_markers, run_script
 from snow_cli.config import Config
-from snow_cli.session import ScriptTokenError
+from snow_cli.client import ScriptTokenError
 
 
 class CliAliasParity(unittest.TestCase):
@@ -198,13 +198,12 @@ class RunScriptAutoLoginTests(unittest.TestCase):
                 cookie_file=Path(tmp_dir) / "cookies.txt",
                 tmp_dir=Path(tmp_dir),
             )
-            first_session = Mock()
-            second_session = Mock()
-            first_session.get_script_token.side_effect = ScriptTokenError(
+            mock_client = Mock()
+            token_error = ScriptTokenError(
                 "Cannot get security token for dev1234.service-now.com. Try logging in again (snow login)"
             )
-            second_session.get_script_token.return_value = "token-123"
-            second_session.post.return_value = types.SimpleNamespace(status_code=200, text="<PRE></PRE>")
+            mock_client.get_script_token.side_effect = [token_error, "token-123"]
+            mock_client.scraping_post.return_value = types.SimpleNamespace(status_code=200, text="<PRE></PRE>")
 
             login_mock = Mock(side_effect=lambda cfg: print(f"Successfully logged in to {cfg.instance}") or 0)
             elevate_mock = Mock(side_effect=lambda cfg: print(f"Successfully elevated privileges on {cfg.instance}") or 0)
@@ -213,7 +212,7 @@ class RunScriptAutoLoginTests(unittest.TestCase):
             stdout_buffer = io.StringIO()
             stderr_buffer = io.StringIO()
 
-            with patch("snow_cli.commands.SnowSession", side_effect=[first_session, second_session]), \
+            with patch("snow_cli.commands.ServiceNowClient", return_value=mock_client), \
                  patch("snow_cli.commands.login", login_mock), \
                  patch("snow_cli.commands.elevate", elevate_mock), \
                  patch("snow_cli.commands._generate_output_markers", return_value=("START", "END")), \
@@ -229,10 +228,10 @@ class RunScriptAutoLoginTests(unittest.TestCase):
             self.assertEqual(login_mock.call_count, 1)
             self.assertEqual(elevate_mock.call_count, 1)
             self.assertEqual(parse_mock.call_count, 1)
-            self.assertEqual(second_session.post.call_count, 1)
-            self.assertIn('gs.print("START");', second_session.post.call_args.kwargs["data"]["script"])
-            self.assertIn("gs.print('Hello');", second_session.post.call_args.kwargs["data"]["script"])
-            self.assertIn('gs.print("END");', second_session.post.call_args.kwargs["data"]["script"])
+            self.assertEqual(mock_client.scraping_post.call_count, 1)
+            self.assertIn('gs.print("START");', mock_client.scraping_post.call_args.kwargs["data"]["script"])
+            self.assertIn("gs.print('Hello');", mock_client.scraping_post.call_args.kwargs["data"]["script"])
+            self.assertIn('gs.print("END");', mock_client.scraping_post.call_args.kwargs["data"]["script"])
 
     def test_auto_login_reports_second_token_failure(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -241,13 +240,11 @@ class RunScriptAutoLoginTests(unittest.TestCase):
                 cookie_file=Path(tmp_dir) / "cookies.txt",
                 tmp_dir=Path(tmp_dir),
             )
-            first_session = Mock()
-            second_session = Mock()
             token_error = ScriptTokenError(
                 "Cannot get security token for dev1234.service-now.com. Try logging in again (snow login)"
             )
-            first_session.get_script_token.side_effect = token_error
-            second_session.get_script_token.side_effect = token_error
+            mock_client = Mock()
+            mock_client.get_script_token.side_effect = [token_error, token_error]
 
             login_mock = Mock(side_effect=lambda cfg: print(f"Successfully logged in to {cfg.instance}") or 0)
             elevate_mock = Mock(side_effect=lambda cfg: print(f"Successfully elevated privileges on {cfg.instance}") or 0)
@@ -256,7 +253,7 @@ class RunScriptAutoLoginTests(unittest.TestCase):
             stdout_buffer = io.StringIO()
             stderr_buffer = io.StringIO()
 
-            with patch("snow_cli.commands.SnowSession", side_effect=[first_session, second_session]), \
+            with patch("snow_cli.commands.ServiceNowClient", return_value=mock_client), \
                  patch("snow_cli.commands.login", login_mock), \
                  patch("snow_cli.commands.elevate", elevate_mock), \
                  patch("snow_cli.commands._parse_and_display_output", parse_mock):
@@ -278,8 +275,8 @@ class RunScriptAutoLoginTests(unittest.TestCase):
                 cookie_file=Path(tmp_dir) / "cookies.txt",
                 tmp_dir=Path(tmp_dir),
             )
-            first_session = Mock()
-            first_session.get_script_token.side_effect = ScriptTokenError(
+            mock_client = Mock()
+            mock_client.get_script_token.side_effect = ScriptTokenError(
                 "Cannot get security token for dev1234.service-now.com. Try logging in again (snow login)"
             )
 
@@ -289,7 +286,7 @@ class RunScriptAutoLoginTests(unittest.TestCase):
             stdout_buffer = io.StringIO()
             stderr_buffer = io.StringIO()
 
-            with patch("snow_cli.commands.SnowSession", return_value=first_session), \
+            with patch("snow_cli.commands.ServiceNowClient", return_value=mock_client), \
                  patch("snow_cli.commands.login", login_mock), \
                  patch("snow_cli.commands.elevate", elevate_mock):
                 with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
@@ -790,22 +787,20 @@ class SilentExceptionTests(unittest.TestCase):
             self.assertIn("Warning", buf.getvalue())
 
     def test_corrupted_cookie_file_prints_warning_to_stderr(self):
-        import requests as real_requests
-        from snow_cli.session import SnowSession
+        from snow_cli.client import ServiceNowClient
         with tempfile.TemporaryDirectory() as tmp_dir:
             cookie_file = Path(tmp_dir) / "cookies.txt"
             cookie_file.write_text("this is not a mozilla cookie jar file")
-
-            session = SnowSession.__new__(SnowSession)
-            session.instance = "dev.service-now.com"
-            session.base_url = "https://dev.service-now.com"
-            session.cookie_file = cookie_file
-            session.session = real_requests.Session()
-
+            config = Config(
+                instance="dev.service-now.com",
+                user="admin",
+                password="pass",
+                cookie_file=cookie_file,
+            )
+            client = ServiceNowClient(config)
             buf = io.StringIO()
             with redirect_stderr(buf):
-                session._load_cookies()
-
+                client._get_scraping_session()
             self.assertIn("Warning", buf.getvalue())
 
 

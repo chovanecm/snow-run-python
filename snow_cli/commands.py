@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 from .config import Config
-from .session import ScriptTokenError, SnowSession
+from .client import ScriptTokenError, ServiceNowClient
 
 
 DISPLAY_VALUE_MAP = {
@@ -49,13 +49,10 @@ def login(config: Config) -> int:
     try:
         config.ensure_credentials_set()
 
-        session = SnowSession(config.instance, config.cookie_file)
+        client = ServiceNowClient(config)
+        login_token = client.get_login_token()
 
-        # Get login token
-        login_token = session.get_login_token()
-
-        # Perform login
-        response = session.post(
+        response = client.scraping_post(
             "/login.do",
             data={
                 "sysparm_ck": login_token,
@@ -89,13 +86,10 @@ def elevate(config: Config) -> int:
     try:
         config.ensure_instance_set()
 
-        session = SnowSession(config.instance, config.cookie_file)
+        client = ServiceNowClient(config)
+        token = client.get_elevate_token()
 
-        # Get elevation token
-        token = session.get_elevate_token()
-
-        # Request role elevation
-        response = session.post(
+        response = client.scraping_post(
             "/api/now/ui/impersonate/role",
             headers={
                 "Accept-Encoding": "gzip, deflate, br",
@@ -132,17 +126,16 @@ def run_script(
     try:
         config.ensure_instance_set()
 
-        # Use provided content, or read from file/stdin
         if script_content is None:
             if script_file and script_file != "-":
                 with open(script_file, "r") as f:
                     script_content = f.read()
             else:
-                # Read from stdin
                 script_content = sys.stdin.read()
 
+        client = ServiceNowClient(config)
         try:
-            return _run_script_once(config, script_content)
+            return _run_script_once(client, config, script_content)
         except ScriptTokenError as exc:
             if not auto_login:
                 raise
@@ -154,7 +147,7 @@ def run_script(
             if _run_command_with_output_on_stderr(elevate, config) != 0:
                 return 1
 
-            return _run_script_once(config, script_content)
+            return _run_script_once(client, config, script_content)
 
     except FileNotFoundError:
         print(f"Script file not found: {script_file}", file=sys.stderr)
@@ -169,14 +162,12 @@ def _run_command_with_output_on_stderr(fn, *args, **kwargs) -> int:
         return fn(*args, **kwargs)
 
 
-def _run_script_once(config: Config, script_content: str) -> int:
-    session = SnowSession(config.instance, config.cookie_file)
-
-    token = session.get_script_token()
+def _run_script_once(client: ServiceNowClient, config: Config, script_content: str) -> int:
+    token = client.get_script_token()
     start_marker, end_marker = _generate_output_markers()
     wrapped_script = _wrap_script_with_output_markers(script_content, start_marker, end_marker)
 
-    response = session.post(
+    response = client.scraping_post(
         "/sys.scripts.do",
         headers={
             "Connection": "keep-alive",
