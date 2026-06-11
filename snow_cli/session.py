@@ -1,5 +1,6 @@
 """ServiceNow session management with cookie persistence"""
 import re
+import sys
 import http.cookiejar
 from pathlib import Path
 from typing import Optional
@@ -32,8 +33,7 @@ class SnowSession:
                 for cookie in cookie_jar:
                     self.session.cookies.set_cookie(cookie)
             except Exception as e:
-                # If cookie file is corrupted, ignore and start fresh
-                pass
+                print(f"Warning: cookie file could not be loaded and will be ignored ({e})", file=sys.stderr)
 
     def _save_cookies(self):
         """Save cookies to file"""

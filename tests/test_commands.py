@@ -760,5 +760,47 @@ class RunWithCaptureTests(unittest.TestCase):
         self.assertFalse(hasattr(mcp, "_run_without_config_with_capture"))
 
 
+class SilentExceptionTests(unittest.TestCase):
+    def test_corrupted_config_file_prints_warning_to_stderr(self):
+        from snow_cli.config import Config
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            snow_dir = Path(tmp_dir) / ".snow-run"
+            snow_dir.mkdir()
+            config_file = snow_dir / "config.json"
+            config_file.write_text("{ not valid json }")
+
+            config = Config.__new__(Config)
+            config.snow_dir = snow_dir
+            config.config_file = config_file
+            config.instance = None
+            config.user = None
+            config.password = None
+
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                config._load_from_file()
+
+            self.assertIn("Warning", buf.getvalue())
+
+    def test_corrupted_cookie_file_prints_warning_to_stderr(self):
+        import requests as real_requests
+        from snow_cli.session import SnowSession
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cookie_file = Path(tmp_dir) / "cookies.txt"
+            cookie_file.write_text("this is not a mozilla cookie jar file")
+
+            session = SnowSession.__new__(SnowSession)
+            session.instance = "dev.service-now.com"
+            session.base_url = "https://dev.service-now.com"
+            session.cookie_file = cookie_file
+            session.session = real_requests.Session()
+
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                session._load_cookies()
+
+            self.assertIn("Warning", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

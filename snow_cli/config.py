@@ -1,5 +1,6 @@
 """Configuration management for ServiceNow CLI"""
 import os
+import sys
 import json
 from pathlib import Path
 from typing import Optional, Dict
@@ -47,8 +48,7 @@ class Config:
                         # Legacy: check config file for password
                         self.password = instance_config.get("password")
         except (json.JSONDecodeError, KeyError) as e:
-            # Ignore corrupted config file
-            pass
+            print(f"Warning: config file is corrupted and will be ignored ({e})", file=sys.stderr)
 
     def _get_password_from_keyring(self, instance: str, user: str) -> Optional[str]:
         """Get password from system keyring"""
