@@ -45,25 +45,8 @@ from click.testing import CliRunner
 
 from snow_cli import cli as cli_module
 from snow_cli.commands import _parse_and_display_output, _parse_output_lines, _wrap_script_with_output_markers, run_script
+from snow_cli.config import Config
 from snow_cli.session import ScriptTokenError
-
-
-class DummyConfig:
-    def __init__(self, tmp_path):
-        self.instance = "dev1234.service-now.com"
-        self._tmp_dir = Path(tmp_path)
-
-    def ensure_instance_set(self):
-        return None
-
-    @property
-    def tmp_dir(self):
-        self._tmp_dir.mkdir(parents=True, exist_ok=True)
-        return self._tmp_dir
-
-    @property
-    def cookie_file(self):
-        return self.tmp_dir / "cookies.txt"
 
 
 class CliAliasParity(unittest.TestCase):
@@ -210,7 +193,11 @@ class WrapScriptWithMarkersTests(unittest.TestCase):
 class RunScriptAutoLoginTests(unittest.TestCase):
     def test_auto_login_retries_token_failure_once(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
+            config = Config(
+                instance="dev1234.service-now.com",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             first_session = Mock()
             second_session = Mock()
             first_session.get_script_token.side_effect = ScriptTokenError(
@@ -249,7 +236,11 @@ class RunScriptAutoLoginTests(unittest.TestCase):
 
     def test_auto_login_reports_second_token_failure(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
+            config = Config(
+                instance="dev1234.service-now.com",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             first_session = Mock()
             second_session = Mock()
             token_error = ScriptTokenError(
@@ -282,7 +273,11 @@ class RunScriptAutoLoginTests(unittest.TestCase):
 
     def test_auto_login_stops_when_login_fails(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
+            config = Config(
+                instance="dev1234.service-now.com",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             first_session = Mock()
             first_session.get_script_token.side_effect = ScriptTokenError(
                 "Cannot get security token for dev1234.service-now.com. Try logging in again (snow login)"
@@ -339,9 +334,13 @@ class FetchAggregateRecordsTests(unittest.TestCase):
 
         payload = {"result": {"stats": {"count": "42"}}}
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
-            config.user = "u"
-            config.password = "p"
+            config = Config(
+                instance="dev1234.service-now.com",
+                user="u",
+                password="p",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             with patch("requests.get", return_value=self._mock_response(payload)):
                 rows = _fetch_aggregate_records(config, "incident", count=True)
         self.assertEqual(rows, [{"count": "42"}])
@@ -366,9 +365,13 @@ class FetchAggregateRecordsTests(unittest.TestCase):
             ]
         }
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
-            config.user = "u"
-            config.password = "p"
+            config = Config(
+                instance="dev1234.service-now.com",
+                user="u",
+                password="p",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             with patch("requests.get", return_value=self._mock_response(payload)):
                 rows = _fetch_aggregate_records(config, "incident", count=True, group_by=["priority"])
         self.assertEqual(len(rows), 2)
@@ -382,9 +385,13 @@ class FetchAggregateRecordsTests(unittest.TestCase):
         from snow_cli.commands import _fetch_aggregate_records
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
-            config.user = "u"
-            config.password = "p"
+            config = Config(
+                instance="dev1234.service-now.com",
+                user="u",
+                password="p",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             with patch("requests.get", return_value=self._mock_response({}, status=403)):
                 with self.assertRaises(RuntimeError) as ctx:
                     _fetch_aggregate_records(config, "incident", count=True)
@@ -395,9 +402,13 @@ class AggregateRecordsCliTests(unittest.TestCase):
     """Tests for aggregate_records() function (CLI entry point)."""
 
     def _make_config(self, tmp_dir):
-        config = DummyConfig(tmp_dir)
-        config.user = "u"
-        config.password = "p"
+        config = Config(
+            instance="dev1234.service-now.com",
+            user="u",
+            password="p",
+            cookie_file=Path(tmp_dir) / "cookies.txt",
+            tmp_dir=Path(tmp_dir),
+        )
         config.ensure_credentials_set = lambda: None
         return config
 
@@ -547,10 +558,13 @@ class FetchRecordsPaginationTests(unittest.TestCase):
     """Unit tests for _fetch_records() pagination logic."""
 
     def _make_config(self, tmp_dir):
-        config = DummyConfig(tmp_dir)
-        config.user = "u"
-        config.password = "p"
-        return config
+        return Config(
+            instance="dev1234.service-now.com",
+            user="u",
+            password="p",
+            cookie_file=Path(tmp_dir) / "cookies.txt",
+            tmp_dir=Path(tmp_dir),
+        )
 
     def _mock_get(self, pages, link_next_on_pages=None):
         """Return mock responses for successive page fetches.
@@ -840,9 +854,13 @@ class TableFieldsTests(unittest.TestCase):
         side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
-            config.user = "u"
-            config.password = "p"
+            config = Config(
+                instance="dev1234.service-now.com",
+                user="u",
+                password="p",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             with patch("requests.get", side_effect=side_effects):
                 fields = _fetch_table_fields(config, "child_table")
 
@@ -864,9 +882,13 @@ class TableFieldsTests(unittest.TestCase):
         side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
-            config.user = "u"
-            config.password = "p"
+            config = Config(
+                instance="dev1234.service-now.com",
+                user="u",
+                password="p",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             with patch("requests.get", side_effect=side_effects):
                 fields = _fetch_table_fields(config, "child_table")
 
@@ -891,9 +913,13 @@ class TableFieldsTests(unittest.TestCase):
         side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = DummyConfig(tmp_dir)
-            config.user = "u"
-            config.password = "p"
+            config = Config(
+                instance="dev1234.service-now.com",
+                user="u",
+                password="p",
+                cookie_file=Path(tmp_dir) / "cookies.txt",
+                tmp_dir=Path(tmp_dir),
+            )
             with patch("requests.get", side_effect=side_effects):
                 fields = _fetch_table_fields(config, "child_table")
 
