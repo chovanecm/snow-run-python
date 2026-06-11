@@ -40,7 +40,7 @@ class OutputFormat(str, Enum):
         return self.value
 
     @classmethod
-    def aggregate_choices(cls) -> list:
+    def aggregate_choices(cls) -> "List[OutputFormat]":
         return [f for f in cls if f not in {cls.XML, cls.EXCEL}]
 
 
