@@ -52,26 +52,8 @@ mcp = FastMCP(
 )
 
 
-def _run_with_capture(config: Config, fn, *args, **kwargs) -> str:
+def _run_with_capture(fn, *args, **kwargs) -> str:
     """Run a command function and return captured stdout + stderr as a single string."""
-    stdout_buf = io.StringIO()
-    stderr_buf = io.StringIO()
-    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-        exit_code = fn(config, *args, **kwargs)
-    output = stdout_buf.getvalue()
-    errors = stderr_buf.getvalue()
-    parts = []
-    if output:
-        parts.append(output.rstrip())
-    if errors:
-        parts.append(f"[stderr]\n{errors.rstrip()}")
-    if not parts:
-        parts.append("Done." if exit_code == 0 else f"Command failed (exit code {exit_code}).")
-    return "\n".join(parts)
-
-
-def _run_without_config_with_capture(fn, *args, **kwargs) -> str:
-    """Run a command function (without config arg) and capture stdout + stderr."""
     stdout_buf = io.StringIO()
     stderr_buf = io.StringIO()
     with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
@@ -102,7 +84,7 @@ def snow_run_script(script: str, instance: Optional[str] = None) -> str:
     t0 = time.monotonic()
     try:
         config = Config(instance=instance)
-        result = _run_with_capture(config, run_script, script_content=script)
+        result = _run_with_capture(run_script, config, script_content=script)
         log_tool_call("snow_run_script", {"instance": instance or "(default)", "script_length": len(script)}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
         return result
     except Exception as e:
@@ -120,7 +102,7 @@ def snow_login(instance: Optional[str] = None) -> str:
     t0 = time.monotonic()
     try:
         config = Config(instance=instance)
-        result = _run_with_capture(config, login)
+        result = _run_with_capture(login, config)
         log_tool_call("snow_login", {"instance": instance or "(default)"}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
         return result
     except Exception as e:
@@ -138,7 +120,7 @@ def snow_elevate(instance: Optional[str] = None) -> str:
     t0 = time.monotonic()
     try:
         config = Config(instance=instance)
-        result = _run_with_capture(config, elevate)
+        result = _run_with_capture(elevate, config)
         log_tool_call("snow_elevate", {"instance": instance or "(default)"}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
         return result
     except Exception as e:
@@ -150,7 +132,7 @@ def snow_elevate(instance: Optional[str] = None) -> str:
 def snow_list_instances() -> str:
     """List all configured ServiceNow instances."""
     t0 = time.monotonic()
-    result = _run_without_config_with_capture(list_instances)
+    result = _run_with_capture(list_instances)
     log_tool_call("snow_list_instances", {}, "success", duration_ms=int((time.monotonic() - t0) * 1000))
     return result
 
