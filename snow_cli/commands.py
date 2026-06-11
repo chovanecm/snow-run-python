@@ -200,6 +200,7 @@ def _run_script_once(config: Config, script_content: str) -> int:
 
     # Save raw output for debugging
     output_file = config.tmp_dir / "last_run_output.txt"
+    output_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd = os.open(str(output_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(response.text)

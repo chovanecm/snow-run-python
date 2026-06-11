@@ -1,7 +1,7 @@
 """Command-line interface for ServiceNow CLI"""
 import sys
 import click
-from .config import Config
+from .instance_repository import InstanceRepository
 from .commands import login, elevate, run_script, search_records, table_fields, count_records, aggregate_records, OutputFormat
 from .instance_manager import add_instance, list_instances, use_instance, remove_instance, show_info
 
@@ -23,7 +23,7 @@ def main(ctx, instance):
       snow --instance dev2 login  # Login to specific instance
     """
     # Initialize config with specified instance
-    config = Config(instance=instance)
+    config = InstanceRepository().load_config(instance=instance)
     ctx.obj = config
 
 

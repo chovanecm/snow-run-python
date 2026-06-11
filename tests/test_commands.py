@@ -762,23 +762,16 @@ class RunWithCaptureTests(unittest.TestCase):
 
 class SilentExceptionTests(unittest.TestCase):
     def test_corrupted_config_file_prints_warning_to_stderr(self):
-        from snow_cli.config import Config
+        from snow_cli.instance_repository import InstanceRepository
         with tempfile.TemporaryDirectory() as tmp_dir:
             snow_dir = Path(tmp_dir) / ".snow-run"
             snow_dir.mkdir()
-            config_file = snow_dir / "config.json"
-            config_file.write_text("{ not valid json }")
+            (snow_dir / "config.json").write_text("{ not valid json }")
 
-            config = Config.__new__(Config)
-            config.snow_dir = snow_dir
-            config.config_file = config_file
-            config.instance = None
-            config.user = None
-            config.password = None
-
+            repo = InstanceRepository(snow_dir=snow_dir)
             buf = io.StringIO()
             with redirect_stderr(buf):
-                config._load_from_file()
+                repo.load_config()
 
             self.assertIn("Warning", buf.getvalue())
 

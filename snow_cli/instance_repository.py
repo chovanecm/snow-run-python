@@ -65,6 +65,37 @@ class InstanceRepository:
         data["default_instance"] = instance
         self._save_json(data)
 
+    def load_config(self, instance: Optional[str] = None) -> "Config":
+        """Resolve credentials from env vars and config file; return a populated Config."""
+        from .config import Config
+
+        instance = instance or os.environ.get("snow_instance")
+        user = os.environ.get("snow_user")
+        password = os.environ.get("snow_pwd")
+
+        if not instance or not user or not password:
+            data = self._load_json()
+            if not instance:
+                instance = data.get("default_instance")
+            if instance and "instances" in data:
+                inst_cfg = data["instances"].get(instance, {})
+                if not user:
+                    user = inst_cfg.get("user")
+                if not password:
+                    password = self._get_password_from_keyring(instance, user)
+                    if not password:
+                        password = inst_cfg.get("password")
+
+        cookie_file = self.cookie_file_for(instance) if instance else None
+        tmp_dir = self.tmp_dir_for(instance) if instance else None
+        return Config(
+            instance=instance,
+            user=user,
+            password=password,
+            cookie_file=cookie_file,
+            tmp_dir=tmp_dir,
+        )
+
     # ---------- private I/O ----------
 
     def _load_json(self) -> dict:

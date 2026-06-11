@@ -158,3 +158,78 @@ class InstanceRepositoryCrudTests(unittest.TestCase):
         self.repo.save("dev.service-now.com", "admin", "pass")
         self.repo.remove("other.service-now.com")  # must not raise
         self.assertIn("dev.service-now.com", self.repo.list_all())
+
+
+class LoadConfigTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = InstanceRepository(snow_dir=Path(self._tmp.name) / ".snow-run")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write_config(self, data: dict):
+        self.repo.snow_dir.mkdir(parents=True, exist_ok=True)
+        (self.repo.snow_dir / "config.json").write_text(json.dumps(data))
+
+    def test_returns_none_fields_when_nothing_configured(self):
+        config = self.repo.load_config()
+        self.assertIsNone(config.instance)
+        self.assertIsNone(config.user)
+        self.assertIsNone(config.password)
+        self.assertIsNone(config.cookie_file)
+        self.assertIsNone(config.tmp_dir)
+
+    def test_instance_arg_takes_priority_over_env(self):
+        with patch.dict(os.environ, {"snow_instance": "env.service-now.com"}):
+            config = self.repo.load_config(instance="arg.service-now.com")
+        self.assertEqual(config.instance, "arg.service-now.com")
+
+    def test_resolves_instance_from_snow_instance_env_var(self):
+        with patch.dict(os.environ, {"snow_instance": "env.service-now.com"},
+                        clear=False):
+            config = self.repo.load_config()
+        self.assertEqual(config.instance, "env.service-now.com")
+
+    def test_resolves_instance_from_file_default_instance(self):
+        self._write_config({
+            "default_instance": "file.service-now.com",
+            "instances": {"file.service-now.com": {"user": "admin", "keyring": False, "password": "p"}}
+        })
+        config = self.repo.load_config()
+        self.assertEqual(config.instance, "file.service-now.com")
+
+    def test_computes_cookie_file_and_tmp_dir_when_instance_known(self):
+        self._write_config({
+            "default_instance": "dev.service-now.com",
+            "instances": {"dev.service-now.com": {"user": "admin", "keyring": False, "password": "p"}}
+        })
+        config = self.repo.load_config()
+        self.assertEqual(config.cookie_file, self.repo.cookie_file_for("dev.service-now.com"))
+        self.assertEqual(config.tmp_dir, self.repo.tmp_dir_for("dev.service-now.com"))
+
+    def test_cookie_file_and_tmp_dir_are_none_when_no_instance(self):
+        config = self.repo.load_config()
+        self.assertIsNone(config.cookie_file)
+        self.assertIsNone(config.tmp_dir)
+
+    def test_credentials_from_env_override_file(self):
+        self._write_config({
+            "default_instance": "dev.service-now.com",
+            "instances": {"dev.service-now.com": {"user": "file_user", "keyring": False, "password": "file_pass"}}
+        })
+        with patch.dict(os.environ, {"snow_user": "env_user", "snow_pwd": "env_pass"}, clear=False):
+            config = self.repo.load_config()
+        self.assertEqual(config.user, "env_user")
+        self.assertEqual(config.password, "env_pass")
+
+    def test_resolves_user_and_password_from_file(self):
+        self._write_config({
+            "default_instance": "dev.service-now.com",
+            "instances": {
+                "dev.service-now.com": {"user": "admin", "keyring": False, "password": "s3cr3t"}
+            }
+        })
+        config = self.repo.load_config()
+        self.assertEqual(config.user, "admin")
+        self.assertEqual(config.password, "s3cr3t")
