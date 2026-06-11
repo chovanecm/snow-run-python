@@ -1026,4 +1026,5 @@ _FORMATTERS = {
     "xml":   lambda r, f, nh, dv, of, t: _write_or_print(_build_xml(r, t, dv), of),
     "excel": lambda r, f, nh, dv, of, t: _output_excel(r, f, nh, dv, of),
 }
+# OutputFormat is authoritative — keep _FORMATTERS keys in sync with its members.
 FORMAT_CHOICES = list(OutputFormat)
