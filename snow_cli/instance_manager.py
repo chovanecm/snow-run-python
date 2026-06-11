@@ -1,7 +1,7 @@
 """Instance management commands"""
 import sys
 import getpass
-from .config import Config
+from .instance_repository import InstanceRepository
 
 
 def add_instance(instance: str = None, set_default: bool = False):
@@ -27,8 +27,8 @@ def add_instance(instance: str = None, set_default: bool = False):
             return 1
 
         # Save to config
-        config = Config()
-        keyring_success = config.save_instance(instance, user, password, set_default)
+        repo = InstanceRepository()
+        keyring_success = repo.save(instance, user, password, set_default)
 
         print(f"\n✓ Added instance: {instance}")
         print(f"  User: {user}")
@@ -39,7 +39,7 @@ def add_instance(instance: str = None, set_default: bool = False):
             print(f"  Password: Stored in config file (fallback)")
             print(f"  Warning: System keyring not available, using less secure storage")
 
-        if set_default or config.get_default_instance() == instance:
+        if set_default or repo.get_default() == instance:
             print(f"  Set as default instance")
 
         return 0
@@ -54,9 +54,9 @@ def add_instance(instance: str = None, set_default: bool = False):
 
 def list_instances():
     """List all configured instances"""
-    config = Config()
-    instances = config.list_instances()
-    default = config.get_default_instance()
+    repo = InstanceRepository()
+    instances = repo.list_all()
+    default = repo.get_default()
 
     if not instances:
         print("No instances configured.")
@@ -79,8 +79,8 @@ def list_instances():
 def use_instance(instance: str):
     """Set default instance"""
     try:
-        config = Config()
-        config.set_default_instance(instance)
+        repo = InstanceRepository()
+        repo.set_default(instance)
         print(f"✓ Set default instance to: {instance}")
         return 0
     except ValueError as e:
@@ -94,10 +94,10 @@ def use_instance(instance: str):
 def remove_instance(instance: str):
     """Remove an instance"""
     try:
-        config = Config()
+        repo = InstanceRepository()
 
         # Check if instance exists
-        instances = config.list_instances()
+        instances = repo.list_all()
         if instance not in instances:
             print(f"Error: Instance {instance} not found", file=sys.stderr)
             return 1
@@ -108,7 +108,7 @@ def remove_instance(instance: str):
             print("Cancelled.")
             return 0
 
-        config.remove_instance(instance)
+        repo.remove(instance)
         print(f"✓ Removed instance: {instance}")
         return 0
 
@@ -119,16 +119,16 @@ def remove_instance(instance: str):
 
 def show_info():
     """Show current configuration"""
-    config = Config()
+    repo = InstanceRepository()
+    config = repo.load_config()
 
-    # Show current/default instance
     if config.instance:
         print(f"Current instance: {config.instance}")
         print(f"  User: {config.user or '(not set)'}")
         print(f"  Password: {'(set)' if config.password else '(not set)'}")
         print(f"  Cookie file: {config.cookie_file}")
     else:
-        default = config.get_default_instance()
+        default = repo.get_default()
         if default:
             print(f"Default instance: {default}")
         else:
@@ -136,8 +136,7 @@ def show_info():
 
     print()
 
-    # Show all instances
-    instances = config.list_instances()
+    instances = repo.list_all()
     if instances:
         print(f"Total instances configured: {len(instances)}")
         print("\nRun 'snow list' to see all instances.")
