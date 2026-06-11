@@ -351,7 +351,7 @@ def _has_next_page(response) -> bool:
 
 
 def _fetch_records(
-    config: Config,
+    client: "ServiceNowClient",
     table: str,
     query: Optional[str] = None,
     order_by: Optional[list] = None,
@@ -370,8 +370,6 @@ def _fetch_records(
 
     When *limit* is set, at most that many records are returned.
     """
-    import requests as _requests
-
     if limit is not None and limit <= 0:
         return []
 
@@ -390,10 +388,6 @@ def _fetch_records(
     if fields:
         base_params["sysparm_fields"] = fields
 
-    url = f"https://{config.instance}/api/now/table/{table}"
-    auth = (config.user, config.password)
-    headers = {"Accept": "application/json"}
-
     all_records: list = []
     offset = 0
 
@@ -402,7 +396,7 @@ def _fetch_records(
         page_size = min(_DEFAULT_PAGE_SIZE, remaining) if remaining is not None else _DEFAULT_PAGE_SIZE
 
         params = {**base_params, "sysparm_limit": str(page_size), "sysparm_offset": str(offset)}
-        response = _requests.get(url, params=params, headers=headers, auth=auth)
+        response = client.rest_get(f"/api/now/table/{table}", params=params)
 
         if response.status_code != 200:
             raise RuntimeError(
@@ -416,11 +410,9 @@ def _fetch_records(
 
         all_records.extend(page)
 
-        # Stop if we've collected the requested number of records
         if limit is not None and len(all_records) >= limit:
             break
 
-        # Use the Link header to detect more pages; fall back to size heuristic
         if _has_next_page(response):
             offset += page_size
         elif len(page) < page_size:
@@ -431,25 +423,22 @@ def _fetch_records(
     return all_records
 
 
-def _get_table_hierarchy(base: str, auth: tuple, table_name: str) -> list:
+def _get_table_hierarchy(client: "ServiceNowClient", table_name: str) -> list:
     """Return list of table names from table_name up to the root (most-specific first)."""
-    import requests as _requests
     hierarchy = []
     current = table_name
     visited = set()
     while current and current not in visited:
         visited.add(current)
         hierarchy.append(current)
-        resp = _requests.get(
-            f"{base}/api/now/table/sys_db_object",
+        resp = client.rest_get(
+            "/api/now/table/sys_db_object",
             params={
                 "sysparm_query": f"name={current}",
                 "sysparm_fields": "super_class.name",
                 "sysparm_limit": "1",
                 "sysparm_display_value": "false",
             },
-            auth=auth,
-            headers={"Accept": "application/json"},
         )
         if resp.status_code != 200:
             break
@@ -463,22 +452,18 @@ def _get_table_hierarchy(base: str, auth: tuple, table_name: str) -> list:
     return hierarchy
 
 
-def _fetch_table_fields(config: Config, table_name: str) -> list:
+def _fetch_table_fields(client: "ServiceNowClient", table_name: str) -> list:
     """Return all fields (including inherited) for a table. Raises on error.
 
     Each entry: {field, label, type, references, defined_on}
     """
-    import requests as _requests
-    auth = (config.user, config.password)
-    base = f"https://{config.instance}"
-
-    hierarchy = _get_table_hierarchy(base, auth, table_name)
+    hierarchy = _get_table_hierarchy(client, table_name)
     if not hierarchy:
         raise RuntimeError(f"Table '{table_name}' not found or not accessible.")
 
     table_in_query = ",".join(hierarchy)
-    resp = _requests.get(
-        f"{base}/api/now/table/sys_dictionary",
+    resp = client.rest_get(
+        "/api/now/table/sys_dictionary",
         params={
             "sysparm_query": f"nameIN{table_in_query}^elementISNOTEMPTY",
             "sysparm_fields": "element,column_label,internal_type,reference,name",
@@ -486,8 +471,6 @@ def _fetch_table_fields(config: Config, table_name: str) -> list:
             "sysparm_display_value": "all",
             "sysparm_no_count": "true",
         },
-        auth=auth,
-        headers={"Accept": "application/json"},
     )
     if resp.status_code != 200:
         raise RuntimeError(
@@ -562,7 +545,8 @@ def table_fields(
             print("--output FILE is required when --format is excel.", file=sys.stderr)
             return 1
 
-        fields_data = _fetch_table_fields(config, table_name)
+        client = ServiceNowClient(config)
+        fields_data = _fetch_table_fields(client, table_name)
         if not fields_data:
             print(f"No fields found for table '{table_name}'.")
             return 0
@@ -582,21 +566,16 @@ def table_fields(
 def table_fields_json(config: Config, table_name: str) -> list:
     """Return all fields for a table as a list of dicts. Raises on error."""
     config.ensure_credentials_set()
-    return _fetch_table_fields(config, table_name)
+    client = ServiceNowClient(config)
+    return _fetch_table_fields(client, table_name)
 
 
-def _fetch_record_count(config: Config, table: str, query: Optional[str] = None) -> int:
+def _fetch_record_count(client: "ServiceNowClient", table: str, query: Optional[str] = None) -> int:
     """Call the Aggregate API and return the record count. Raises on error."""
-    import requests as _requests
     params = {"sysparm_count": "true"}
     if query:
         params["sysparm_query"] = query
-    response = _requests.get(
-        f"https://{config.instance}/api/now/stats/{table}",
-        params=params,
-        headers={"Accept": "application/json"},
-        auth=(config.user, config.password),
-    )
+    response = client.rest_get(f"/api/now/stats/{table}", params=params)
     if response.status_code != 200:
         raise RuntimeError(
             f"Record count failed with status code: {response.status_code}\n{response.text}"
@@ -608,7 +587,8 @@ def count_records(config: Config, table: str, query: Optional[str] = None) -> in
     """Print the count of matching records (CLI output). Returns exit code."""
     try:
         config.ensure_credentials_set()
-        count = _fetch_record_count(config, table, query)
+        client = ServiceNowClient(config)
+        count = _fetch_record_count(client, table, query)
         print(count)
         return 0
     except RuntimeError as e:
@@ -622,11 +602,12 @@ def count_records(config: Config, table: str, query: Optional[str] = None) -> in
 def count_records_value(config: Config, table: str, query: Optional[str] = None) -> int:
     """Return the count as an integer. Raises on error."""
     config.ensure_credentials_set()
-    return _fetch_record_count(config, table, query)
+    client = ServiceNowClient(config)
+    return _fetch_record_count(client, table, query)
 
 
 def _fetch_aggregate_records(
-    config: Config,
+    client: "ServiceNowClient",
     table: str,
     query: Optional[str] = None,
     group_by: Optional[List[str]] = None,
@@ -639,8 +620,6 @@ def _fetch_aggregate_records(
     display_values: str = "both",
 ) -> List[dict]:
     """Call the Aggregate API and return flattened result rows. Raises on error."""
-    import requests as _requests
-
     params: dict = {
         "sysparm_display_value": DISPLAY_VALUE_MAP[display_values],
     }
@@ -661,12 +640,7 @@ def _fetch_aggregate_records(
     if having:
         params["sysparm_having"] = having
 
-    response = _requests.get(
-        f"https://{config.instance}/api/now/stats/{table}",
-        params=params,
-        headers={"Accept": "application/json"},
-        auth=(config.user, config.password),
-    )
+    response = client.rest_get(f"/api/now/stats/{table}", params=params)
     if response.status_code != 200:
         raise RuntimeError(
             f"Aggregate query failed with status code: {response.status_code}\n{response.text}"
@@ -742,8 +716,9 @@ def aggregate_records(
             )
             return 1
 
+        client = ServiceNowClient(config)
         records = _fetch_aggregate_records(
-            config,
+            client,
             table,
             query=query,
             group_by=group_by,
@@ -793,8 +768,9 @@ def aggregate_records_json(
     config.ensure_credentials_set()
     if display_values not in DISPLAY_VALUE_MAP:
         raise ValueError(f"Invalid display_values '{display_values}'. Use one of: values, display, both.")
+    client = ServiceNowClient(config)
     return _fetch_aggregate_records(
-        config,
+        client,
         table,
         query=query,
         group_by=group_by,
@@ -845,7 +821,8 @@ def search_records(
             print("--output FILE is required when --format is excel.", file=sys.stderr)
             return 1
 
-        records = _fetch_records(config, table, query, order_by, order_by_desc, fields, limit, display_values)
+        client = ServiceNowClient(config)
+        records = _fetch_records(client, table, query, order_by, order_by_desc, fields, limit, display_values)
 
         if not records:
             if fmt not in {OutputFormat.JSON, OutputFormat.XML}:
@@ -884,7 +861,8 @@ def search_records_json(
     config.ensure_credentials_set()
     if display_values not in DISPLAY_VALUE_MAP:
         raise ValueError(f"Invalid display_values '{display_values}'. Use one of: values, display, both.")
-    return _fetch_records(config, table, query, order_by, order_by_desc, fields, limit, display_values)
+    client = ServiceNowClient(config)
+    return _fetch_records(client, table, query, order_by, order_by_desc, fields, limit, display_values)
 
 
 def _resolve_selected_fields(fields: Optional[str], sample_record: dict) -> list:

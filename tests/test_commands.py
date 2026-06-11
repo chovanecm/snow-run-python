@@ -330,16 +330,9 @@ class FetchAggregateRecordsTests(unittest.TestCase):
         from snow_cli.commands import _fetch_aggregate_records
 
         payload = {"result": {"stats": {"count": "42"}}}
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = Config(
-                instance="dev1234.service-now.com",
-                user="u",
-                password="p",
-                cookie_file=Path(tmp_dir) / "cookies.txt",
-                tmp_dir=Path(tmp_dir),
-            )
-            with patch("requests.get", return_value=self._mock_response(payload)):
-                rows = _fetch_aggregate_records(config, "incident", count=True)
+        mock_client = Mock()
+        mock_client.rest_get.return_value = self._mock_response(payload)
+        rows = _fetch_aggregate_records(mock_client, "incident", count=True)
         self.assertEqual(rows, [{"count": "42"}])
 
     def test_groupby_results_are_flattened(self):
@@ -361,16 +354,9 @@ class FetchAggregateRecordsTests(unittest.TestCase):
                 },
             ]
         }
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = Config(
-                instance="dev1234.service-now.com",
-                user="u",
-                password="p",
-                cookie_file=Path(tmp_dir) / "cookies.txt",
-                tmp_dir=Path(tmp_dir),
-            )
-            with patch("requests.get", return_value=self._mock_response(payload)):
-                rows = _fetch_aggregate_records(config, "incident", count=True, group_by=["priority"])
+        mock_client = Mock()
+        mock_client.rest_get.return_value = self._mock_response(payload)
+        rows = _fetch_aggregate_records(mock_client, "incident", count=True, group_by=["priority"])
         self.assertEqual(len(rows), 2)
         self.assertIn("priority", rows[0])
         self.assertIn("count", rows[0])
@@ -381,17 +367,10 @@ class FetchAggregateRecordsTests(unittest.TestCase):
     def test_http_error_raises_runtime_error(self):
         from snow_cli.commands import _fetch_aggregate_records
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = Config(
-                instance="dev1234.service-now.com",
-                user="u",
-                password="p",
-                cookie_file=Path(tmp_dir) / "cookies.txt",
-                tmp_dir=Path(tmp_dir),
-            )
-            with patch("requests.get", return_value=self._mock_response({}, status=403)):
-                with self.assertRaises(RuntimeError) as ctx:
-                    _fetch_aggregate_records(config, "incident", count=True)
+        mock_client = Mock()
+        mock_client.rest_get.return_value = self._mock_response({}, status=403)
+        with self.assertRaises(RuntimeError) as ctx:
+            _fetch_aggregate_records(mock_client, "incident", count=True)
         self.assertIn("403", str(ctx.exception))
 
 
@@ -435,10 +414,13 @@ class AggregateRecordsCliTests(unittest.TestCase):
         mock_resp.status_code = 200
         mock_resp.json.return_value = payload
 
+        mock_client = Mock()
+        mock_client.rest_get.return_value = mock_resp
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = self._make_config(tmp_dir)
             out = io.StringIO()
-            with patch("requests.get", return_value=mock_resp):
+            with patch("snow_cli.commands.ServiceNowClient", return_value=mock_client):
                 with redirect_stdout(out):
                     code = aggregate_records(
                         config, "incident", count=True, group_by=["state"], fmt="json"
@@ -460,10 +442,13 @@ class AggregateRecordsCliTests(unittest.TestCase):
         mock_resp.status_code = 200
         mock_resp.json.return_value = payload
 
+        mock_client = Mock()
+        mock_client.rest_get.return_value = mock_resp
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = self._make_config(tmp_dir)
             out = io.StringIO()
-            with patch("requests.get", return_value=mock_resp):
+            with patch("snow_cli.commands.ServiceNowClient", return_value=mock_client):
                 with redirect_stdout(out):
                     code = aggregate_records(config, "incident", count=True, fmt="json")
         self.assertEqual(code, 0)
@@ -554,22 +539,8 @@ class CliAggregateCommandTests(unittest.TestCase):
 class FetchRecordsPaginationTests(unittest.TestCase):
     """Unit tests for _fetch_records() pagination logic."""
 
-    def _make_config(self, tmp_dir):
-        return Config(
-            instance="dev1234.service-now.com",
-            user="u",
-            password="p",
-            cookie_file=Path(tmp_dir) / "cookies.txt",
-            tmp_dir=Path(tmp_dir),
-        )
-
-    def _mock_get(self, pages, link_next_on_pages=None):
-        """Return mock responses for successive page fetches.
-
-        *link_next_on_pages* is an optional set of 0-based page indices that
-        should include a ``Link: rel="next"`` header. All other pages get an
-        empty Link header (signals last page).
-        """
+    def _make_mock_client(self, pages, link_next_on_pages=None):
+        """Return a mock ServiceNowClient whose rest_get returns successive page responses."""
         link_next_on_pages = set(link_next_on_pages or [])
         responses = []
         for idx, page_records in enumerate(pages):
@@ -581,20 +552,19 @@ class FetchRecordsPaginationTests(unittest.TestCase):
             else:
                 mock.headers.get.return_value = ""
             responses.append(mock)
-        return responses
+        client = Mock()
+        client.rest_get.side_effect = responses
+        return client
 
     def test_single_page_no_pagination_needed(self):
         """When the result fits in one page, only one request is made."""
         from snow_cli.commands import _fetch_records
 
         records = [{"sys_id": {"value": str(i), "display_value": str(i)}} for i in range(10)]
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", side_effect=self._mock_get([records])) as mock_get:
-                result = _fetch_records(config, "incident")
-
+        client = self._make_mock_client([records])
+        result = _fetch_records(client, "incident")
         self.assertEqual(len(result), 10)
-        self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(client.rest_get.call_count, 1)
 
     def test_two_pages_are_combined(self):
         """When the first page is full, a second request is made for the remainder."""
@@ -602,38 +572,29 @@ class FetchRecordsPaginationTests(unittest.TestCase):
 
         page1 = [{"sys_id": {"value": str(i)}} for i in range(_DEFAULT_PAGE_SIZE)]
         page2 = [{"sys_id": {"value": str(i)}} for i in range(5)]
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", side_effect=self._mock_get([page1, page2])) as mock_get:
-                result = _fetch_records(config, "incident")
-
+        client = self._make_mock_client([page1, page2])
+        result = _fetch_records(client, "incident")
         self.assertEqual(len(result), _DEFAULT_PAGE_SIZE + 5)
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(client.rest_get.call_count, 2)
 
     def test_limit_within_first_page(self):
         """When limit <= page_size, only one request is made."""
         from snow_cli.commands import _fetch_records
 
         page1 = [{"sys_id": {"value": str(i)}} for i in range(50)]
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", side_effect=self._mock_get([page1])) as mock_get:
-                result = _fetch_records(config, "incident", limit=50)
-
+        client = self._make_mock_client([page1])
+        result = _fetch_records(client, "incident", limit=50)
         self.assertEqual(len(result), 50)
-        self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(client.rest_get.call_count, 1)
 
     def test_zero_limit_returns_empty_without_request(self):
         """When limit is zero, no request is made."""
         from snow_cli.commands import _fetch_records
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get") as mock_get:
-                result = _fetch_records(config, "incident", limit=0)
-
+        client = Mock()
+        result = _fetch_records(client, "incident", limit=0)
         self.assertEqual(result, [])
-        self.assertEqual(mock_get.call_count, 0)
+        client.rest_get.assert_not_called()
 
     def test_limit_spanning_two_pages(self):
         """When limit > page_size, two requests are made and result is capped at limit."""
@@ -642,25 +603,19 @@ class FetchRecordsPaginationTests(unittest.TestCase):
         limit = _DEFAULT_PAGE_SIZE + 200
         page1 = [{"sys_id": {"value": str(i)}} for i in range(_DEFAULT_PAGE_SIZE)]
         page2 = [{"sys_id": {"value": str(i)}} for i in range(200)]
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", side_effect=self._mock_get([page1, page2])) as mock_get:
-                result = _fetch_records(config, "incident", limit=limit)
-
+        client = self._make_mock_client([page1, page2])
+        result = _fetch_records(client, "incident", limit=limit)
         self.assertEqual(len(result), limit)
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(client.rest_get.call_count, 2)
 
     def test_empty_table_returns_empty_list(self):
         """An empty result on the first page returns an empty list."""
         from snow_cli.commands import _fetch_records
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", side_effect=self._mock_get([[]])) as mock_get:
-                result = _fetch_records(config, "incident")
-
+        client = self._make_mock_client([[]])
+        result = _fetch_records(client, "incident")
         self.assertEqual(result, [])
-        self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(client.rest_get.call_count, 1)
 
     def test_http_error_raises_runtime_error(self):
         """A non-200 response raises RuntimeError with the status code."""
@@ -669,12 +624,10 @@ class FetchRecordsPaginationTests(unittest.TestCase):
         mock_resp = Mock()
         mock_resp.status_code = 403
         mock_resp.text = "Forbidden"
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", return_value=mock_resp):
-                with self.assertRaises(RuntimeError) as ctx:
-                    _fetch_records(config, "incident")
-
+        client = Mock()
+        client.rest_get.return_value = mock_resp
+        with self.assertRaises(RuntimeError) as ctx:
+            _fetch_records(client, "incident")
         self.assertIn("403", str(ctx.exception))
 
     def test_offset_increments_correctly(self):
@@ -683,13 +636,10 @@ class FetchRecordsPaginationTests(unittest.TestCase):
 
         page1 = [{"sys_id": {"value": str(i)}} for i in range(_DEFAULT_PAGE_SIZE)]
         page2 = [{"sys_id": {"value": str(i)}} for i in range(3)]
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            with patch("requests.get", side_effect=self._mock_get([page1, page2])) as mock_get:
-                _fetch_records(config, "incident")
-
-        first_call_params = mock_get.call_args_list[0].kwargs["params"]
-        second_call_params = mock_get.call_args_list[1].kwargs["params"]
+        client = self._make_mock_client([page1, page2])
+        _fetch_records(client, "incident")
+        first_call_params = client.rest_get.call_args_list[0].kwargs["params"]
+        second_call_params = client.rest_get.call_args_list[1].kwargs["params"]
         self.assertEqual(first_call_params["sysparm_offset"], "0")
         self.assertEqual(second_call_params["sysparm_offset"], str(_DEFAULT_PAGE_SIZE))
 
@@ -698,19 +648,12 @@ class FetchRecordsPaginationTests(unittest.TestCase):
         says rel=next, pagination continues to the next page."""
         from snow_cli.commands import _fetch_records, _DEFAULT_PAGE_SIZE
 
-        # Simulate ACL-filtered pages: each returns fewer than page_size records,
-        # but Link header says there are more pages.
-        page1 = [{"sys_id": {"value": str(i)}} for i in range(996)]   # < 1000, but has next
-        page2 = [{"sys_id": {"value": str(i)}} for i in range(200)]   # last page (no next)
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = self._make_config(tmp_dir)
-            # Only page index 0 gets rel=next; page 1 does not.
-            mocks = self._mock_get([page1, page2], link_next_on_pages={0})
-            with patch("requests.get", side_effect=mocks) as mock_get:
-                result = _fetch_records(config, "incident")
-
+        page1 = [{"sys_id": {"value": str(i)}} for i in range(996)]
+        page2 = [{"sys_id": {"value": str(i)}} for i in range(200)]
+        client = self._make_mock_client([page1, page2], link_next_on_pages={0})
+        result = _fetch_records(client, "incident")
         self.assertEqual(len(result), 996 + 200)
-        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(client.rest_get.call_count, 2)
 
 
 class OutputFormatterRegistryTests(unittest.TestCase):
@@ -828,6 +771,12 @@ class TableFieldsTests(unittest.TestCase):
             effects.append(self._mock_response({"result": [{"super_class.name": parent}]}))
         return effects
 
+    def _make_mock_client(self, side_effects):
+        """Return a mock ServiceNowClient with rest_get returning the given responses in order."""
+        client = Mock()
+        client.rest_get.side_effect = side_effects
+        return client
+
     def test_inherited_field_shows_deepest_ancestor(self):
         """install_status defined on child, middle, and root → defined_on is root."""
         from snow_cli.commands import _fetch_table_fields
@@ -847,18 +796,8 @@ class TableFieldsTests(unittest.TestCase):
             ]
         }
         side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = Config(
-                instance="dev1234.service-now.com",
-                user="u",
-                password="p",
-                cookie_file=Path(tmp_dir) / "cookies.txt",
-                tmp_dir=Path(tmp_dir),
-            )
-            with patch("requests.get", side_effect=side_effects):
-                fields = _fetch_table_fields(config, "child_table")
-
+        client = self._make_mock_client(side_effects)
+        fields = _fetch_table_fields(client, "child_table")
         f = next(x for x in fields if x["field"] == "install_status")
         self.assertEqual(f["defined_on"], "root_table")
 
@@ -875,18 +814,8 @@ class TableFieldsTests(unittest.TestCase):
             ]
         }
         side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = Config(
-                instance="dev1234.service-now.com",
-                user="u",
-                password="p",
-                cookie_file=Path(tmp_dir) / "cookies.txt",
-                tmp_dir=Path(tmp_dir),
-            )
-            with patch("requests.get", side_effect=side_effects):
-                fields = _fetch_table_fields(config, "child_table")
-
+        client = self._make_mock_client(side_effects)
+        fields = _fetch_table_fields(client, "child_table")
         f = next(x for x in fields if x["field"] == "u_custom")
         self.assertEqual(f["defined_on"], "child_table")
 
@@ -906,21 +835,11 @@ class TableFieldsTests(unittest.TestCase):
             ]
         }
         side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config = Config(
-                instance="dev1234.service-now.com",
-                user="u",
-                password="p",
-                cookie_file=Path(tmp_dir) / "cookies.txt",
-                tmp_dir=Path(tmp_dir),
-            )
-            with patch("requests.get", side_effect=side_effects):
-                fields = _fetch_table_fields(config, "child_table")
-
+        client = self._make_mock_client(side_effects)
+        fields = _fetch_table_fields(client, "child_table")
         f = next(x for x in fields if x["field"] == "state")
-        self.assertEqual(f["label"], "Child Label")   # child's label wins
-        self.assertEqual(f["defined_on"], "parent_table")  # but origin is ancestor
+        self.assertEqual(f["label"], "Child Label")
+        self.assertEqual(f["defined_on"], "parent_table")
 
 
 class OutputFormatEnumTests(unittest.TestCase):
