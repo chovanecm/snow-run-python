@@ -22,7 +22,6 @@ DISPLAY_VALUE_MAP = {
     "both": "all",
 }
 
-FORMAT_CHOICES = ["table", "tsv", "csv", "json", "xml", "excel"]
 SCRIPT_OUTPUT_PREFIX = "*** Script:"
 PRE_BLOCK_RE = re.compile(r"<PRE\b[^>]*>(.*?)</PRE>", re.DOTALL | re.IGNORECASE)
 BR_TAG_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
@@ -923,18 +922,7 @@ def _output_records(
     output_file: Optional[str],
     table: str,
 ):
-    if fmt == "table":
-        _output_table(records, fields, no_header, display_values, output_file)
-    elif fmt == "tsv":
-        _output_tsv(records, fields, no_header, display_values, output_file)
-    elif fmt == "csv":
-        _output_csv(records, fields, no_header, display_values, output_file)
-    elif fmt == "json":
-        _write_or_print(json.dumps(records, ensure_ascii=False, indent=2), output_file)
-    elif fmt == "xml":
-        _write_or_print(_build_xml(records, table, display_values), output_file)
-    elif fmt == "excel":
-        _output_excel(records, fields, no_header, display_values, output_file)
+    _FORMATTERS[fmt](records, fields, no_header, display_values, output_file, table)
 
 
 def _output_table(records: list, fields: list, no_header: bool, display_values: str, output_file: Optional[str]):
@@ -1006,3 +994,15 @@ def _output_excel(records: list, fields: list, no_header: bool, display_values: 
         ws.append([_format_field_value(record.get(f), display_values) for f in fields])
     wb.save(_validate_output_file(output_file))
     print(f"Written to {output_file}")
+
+
+_FORMATTERS = {
+    "table": lambda r, f, nh, dv, of, t: _output_table(r, f, nh, dv, of),
+    "tsv":   lambda r, f, nh, dv, of, t: _output_tsv(r, f, nh, dv, of),
+    "csv":   lambda r, f, nh, dv, of, t: _output_csv(r, f, nh, dv, of),
+    "json":  lambda r, f, nh, dv, of, t: _write_or_print(
+                 json.dumps(r, ensure_ascii=False, indent=2), of),
+    "xml":   lambda r, f, nh, dv, of, t: _write_or_print(_build_xml(r, t, dv), of),
+    "excel": lambda r, f, nh, dv, of, t: _output_excel(r, f, nh, dv, of),
+}
+FORMAT_CHOICES = list(_FORMATTERS)

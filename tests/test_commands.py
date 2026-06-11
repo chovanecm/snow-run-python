@@ -679,5 +679,16 @@ class FetchRecordsPaginationTests(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 2)
 
 
+class OutputFormatterRegistryTests(unittest.TestCase):
+    def test_formatters_dict_exists_and_covers_all_format_choices(self):
+        from snow_cli.commands import FORMAT_CHOICES, _FORMATTERS
+        self.assertEqual(set(FORMAT_CHOICES), set(_FORMATTERS.keys()))
+
+    def test_format_choices_contains_all_expected_formats(self):
+        from snow_cli.commands import FORMAT_CHOICES
+        for fmt in ("table", "tsv", "csv", "json", "xml", "excel"):
+            self.assertIn(fmt, FORMAT_CHOICES)
+
+
 if __name__ == "__main__":
     unittest.main()
