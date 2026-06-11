@@ -563,7 +563,7 @@ def table_fields(
         if fmt not in FORMAT_CHOICES:
             print(f"Invalid format. Use one of: {', '.join(FORMAT_CHOICES)}", file=sys.stderr)
             return 1
-        if fmt == "excel" and not output_file:
+        if fmt == OutputFormat.EXCEL and not output_file:
             print("--output FILE is required when --format is excel.", file=sys.stderr)
             return 1
 
@@ -706,9 +706,6 @@ def _fetch_aggregate_records(
     return rows
 
 
-AGGREGATE_FORMAT_CHOICES = ["table", "tsv", "csv", "json"]
-
-
 def aggregate_records(
     config: Config,
     table: str,
@@ -743,9 +740,9 @@ def aggregate_records(
             )
             return 1
 
-        if fmt not in AGGREGATE_FORMAT_CHOICES:
+        if fmt not in OutputFormat.aggregate_choices():
             print(
-                f"Invalid format. Use one of: {', '.join(AGGREGATE_FORMAT_CHOICES)}",
+                f"Invalid format. Use one of: {', '.join(str(f) for f in OutputFormat.aggregate_choices())}",
                 file=sys.stderr,
             )
             return 1
@@ -765,7 +762,7 @@ def aggregate_records(
         )
 
         if not records:
-            if fmt == "json":
+            if fmt == OutputFormat.JSON:
                 _write_or_print("[]", output_file)
             else:
                 print("No results.")
@@ -849,18 +846,18 @@ def search_records(
             print(f"Invalid format. Use one of: {', '.join(FORMAT_CHOICES)}", file=sys.stderr)
             return 1
 
-        if fmt == "excel" and not output_file:
+        if fmt == OutputFormat.EXCEL and not output_file:
             print("--output FILE is required when --format is excel.", file=sys.stderr)
             return 1
 
         records = _fetch_records(config, table, query, order_by, order_by_desc, fields, limit, display_values)
 
         if not records:
-            if fmt not in ("json", "xml"):
+            if fmt not in {OutputFormat.JSON, OutputFormat.XML}:
                 print("No records found.")
-            elif fmt == "json":
+            elif fmt == OutputFormat.JSON:
                 _write_or_print("[]", output_file)
-            elif fmt == "xml":
+            elif fmt == OutputFormat.XML:
                 _write_or_print(_build_xml([], table, display_values), output_file)
             return 0
 
