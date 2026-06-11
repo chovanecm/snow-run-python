@@ -454,7 +454,7 @@ def _get_table_hierarchy(base: str, auth: tuple, table_name: str) -> list:
 def _fetch_table_fields(config: Config, table_name: str) -> list:
     """Return all fields (including inherited) for a table. Raises on error.
 
-    Each entry: {field, label, type, references}
+    Each entry: {field, label, type, references, defined_on}
     """
     import requests as _requests
     auth = (config.user, config.password)
@@ -506,16 +506,29 @@ def _fetch_table_fields(config: Config, table_name: str) -> list:
             "references": _val(row.get("reference")),
         })
 
-    # Deduplicate: child table definition wins over parent
-    seen = {}
+    # Deduplicate: child wins for effective field data; ancestor wins for defined_on
+    seen = {}  # field → {"child_prio", "child_entry", "anc_prio", "origin"}
     for entry in entries:
         f = entry["field"]
         prio = table_priority.get(entry["_table"], len(hierarchy))
-        if f not in seen or prio < seen[f][0]:
-            seen[f] = (prio, entry)
+        if f not in seen:
+            seen[f] = {"child_prio": prio, "child_entry": entry,
+                       "anc_prio": prio, "origin": entry["_table"]}
+        else:
+            rec = seen[f]
+            if prio < rec["child_prio"]:
+                rec["child_prio"] = prio
+                rec["child_entry"] = entry
+            if prio > rec["anc_prio"]:
+                rec["anc_prio"] = prio
+                rec["origin"] = entry["_table"]
 
     result = sorted(
-        ({k: v for k, v in e.items() if k != "_table"} for _, e in seen.values()),
+        (
+            {**{k: v for k, v in rec["child_entry"].items() if k != "_table"},
+             "defined_on": rec["origin"]}
+            for rec in seen.values()
+        ),
         key=lambda x: x["field"],
     )
     return result

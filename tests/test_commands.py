@@ -802,5 +802,112 @@ class SilentExceptionTests(unittest.TestCase):
             self.assertIn("Warning", buf.getvalue())
 
 
+class TableFieldsTests(unittest.TestCase):
+    """Tests for _fetch_table_fields() — field origin tracking."""
+
+    def _mock_response(self, payload, status=200):
+        m = Mock()
+        m.status_code = status
+        m.json.return_value = payload
+        m.text = ""
+        return m
+
+    def _hierarchy_side_effects(self, chain):
+        """
+        Build side-effect list for _get_table_hierarchy's sys_db_object calls.
+        chain: ["child", "middle", "root"] produces:
+          call 1: child -> middle
+          call 2: middle -> root
+          call 3: root -> no parent
+        """
+        effects = []
+        for i, name in enumerate(chain):
+            parent = chain[i + 1] if i + 1 < len(chain) else ""
+            effects.append(self._mock_response({"result": [{"super_class.name": parent}]}))
+        return effects
+
+    def test_inherited_field_shows_deepest_ancestor(self):
+        """install_status defined on child, middle, and root → defined_on is root."""
+        from snow_cli.commands import _fetch_table_fields
+
+        hier = ["child_table", "middle_table", "root_table"]
+        dict_payload = {
+            "result": [
+                {"element": {"value": "install_status"}, "column_label": {"value": "Status"},
+                 "internal_type": {"value": "integer"}, "reference": {"value": ""},
+                 "name": {"value": "child_table"}},
+                {"element": {"value": "install_status"}, "column_label": {"value": "Status"},
+                 "internal_type": {"value": "integer"}, "reference": {"value": ""},
+                 "name": {"value": "middle_table"}},
+                {"element": {"value": "install_status"}, "column_label": {"value": "Status"},
+                 "internal_type": {"value": "integer"}, "reference": {"value": ""},
+                 "name": {"value": "root_table"}},
+            ]
+        }
+        side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = DummyConfig(tmp_dir)
+            config.user = "u"
+            config.password = "p"
+            with patch("requests.get", side_effect=side_effects):
+                fields = _fetch_table_fields(config, "child_table")
+
+        f = next(x for x in fields if x["field"] == "install_status")
+        self.assertEqual(f["defined_on"], "root_table")
+
+    def test_native_field_shows_own_table(self):
+        """Field defined only on queried table → defined_on equals queried table."""
+        from snow_cli.commands import _fetch_table_fields
+
+        hier = ["child_table", "parent_table"]
+        dict_payload = {
+            "result": [
+                {"element": {"value": "u_custom"}, "column_label": {"value": "Custom"},
+                 "internal_type": {"value": "string"}, "reference": {"value": ""},
+                 "name": {"value": "child_table"}},
+            ]
+        }
+        side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = DummyConfig(tmp_dir)
+            config.user = "u"
+            config.password = "p"
+            with patch("requests.get", side_effect=side_effects):
+                fields = _fetch_table_fields(config, "child_table")
+
+        f = next(x for x in fields if x["field"] == "u_custom")
+        self.assertEqual(f["defined_on"], "child_table")
+
+    def test_child_label_wins_over_parent(self):
+        """When child overrides the label, the child label is used in output."""
+        from snow_cli.commands import _fetch_table_fields
+
+        hier = ["child_table", "parent_table"]
+        dict_payload = {
+            "result": [
+                {"element": {"value": "state"}, "column_label": {"value": "Child Label"},
+                 "internal_type": {"value": "integer"}, "reference": {"value": ""},
+                 "name": {"value": "child_table"}},
+                {"element": {"value": "state"}, "column_label": {"value": "Parent Label"},
+                 "internal_type": {"value": "integer"}, "reference": {"value": ""},
+                 "name": {"value": "parent_table"}},
+            ]
+        }
+        side_effects = self._hierarchy_side_effects(hier) + [self._mock_response(dict_payload)]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = DummyConfig(tmp_dir)
+            config.user = "u"
+            config.password = "p"
+            with patch("requests.get", side_effect=side_effects):
+                fields = _fetch_table_fields(config, "child_table")
+
+        f = next(x for x in fields if x["field"] == "state")
+        self.assertEqual(f["label"], "Child Label")   # child's label wins
+        self.assertEqual(f["defined_on"], "parent_table")  # but origin is ancestor
+
+
 if __name__ == "__main__":
     unittest.main()
