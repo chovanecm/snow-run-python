@@ -555,7 +555,7 @@ def table_fields(
             print(f"No fields found for table '{table_name}'.")
             return 0
 
-        columns = ["field", "label", "type", "references"]
+        columns = ["field", "label", "type", "references", "defined_on"]
         _output_records(fields_data, columns, no_header=False, display_values="values",
                         fmt=fmt, output_file=output_file, table="sys_dictionary")
         return 0
